@@ -1,0 +1,434 @@
+{
+  "name": "changelens",
+  "displayName": "ChangeLens",
+  "description": "Review changes made by AI agents or any external process, per hunk, independent of Git.",
+  "version": "0.1.0",
+  "publisher": "ragentis",
+  "license": "MIT",
+  "private": true,
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ragentis/changelens-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ragentis/changelens-vscode/issues"
+  },
+  "homepage": "https://github.com/ragentis/changelens-vscode#readme",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ai coding",
+    "ai agents",
+    "agentic coding",
+    "code review",
+    "diff",
+    "change tracking",
+    "hunk review",
+    "external changes",
+    "accept changes",
+    "revert changes",
+    "gitless"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "ChangeLens requires a file-backed workspace to track and restore changes."
+    }
+  },
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "changelens",
+          "title": "ChangeLens",
+          "icon": "assets/changelens.svg"
+        }
+      ]
+    },
+    "views": {
+      "changelens": [
+        {
+          "id": "changelens.changes",
+          "name": "Changes",
+          "icon": "assets/changelens.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "changelens.changes",
+        "when": "changelens.ready && !changelens.hasChanges",
+        "contents": "No pending changes.\n\nEdits made by AI agents or other external tools will show up here for review."
+      },
+      {
+        "view": "changelens.changes",
+        "when": "!changelens.ready",
+        "contents": "Capturing workspace baseline…"
+      }
+    ],
+    "commands": [
+      {
+        "command": "changelens.refresh",
+        "title": "Refresh",
+        "category": "ChangeLens",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "changelens.openDiff",
+        "title": "Open Change",
+        "category": "ChangeLens"
+      },
+      {
+        "command": "changelens.openFile",
+        "title": "Open File",
+        "category": "ChangeLens",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "changelens.acceptHunk",
+        "title": "Accept Change",
+        "category": "ChangeLens",
+        "icon": "$(check)"
+      },
+      {
+        "command": "changelens.revertHunk",
+        "title": "Revert Change",
+        "category": "ChangeLens",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "changelens.acceptFile",
+        "title": "Accept File",
+        "category": "ChangeLens",
+        "icon": "$(check)"
+      },
+      {
+        "command": "changelens.revertFile",
+        "title": "Revert File",
+        "category": "ChangeLens",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "changelens.acceptAll",
+        "title": "Accept All",
+        "category": "ChangeLens",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "changelens.revertAll",
+        "title": "Revert All",
+        "category": "ChangeLens",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "changelens.viewAsList",
+        "title": "Show as List",
+        "category": "ChangeLens",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "changelens.viewAsTree",
+        "title": "Show as Tree",
+        "category": "ChangeLens",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "changelens.rebaseline",
+        "title": "Reset Baseline to Current Workspace",
+        "category": "ChangeLens"
+      },
+      {
+        "command": "changelens.toggleInlineDiff",
+        "title": "Toggle Inline Diff View",
+        "category": "ChangeLens"
+      },
+      {
+        "command": "changelens.configureDiffView",
+        "title": "Set Up Diff View for This Workspace",
+        "category": "ChangeLens"
+      },
+      {
+        "command": "changelens.toggleReviewMode",
+        "title": "Toggle Review Mode (Unified / Diff Editor)",
+        "category": "ChangeLens"
+      },
+      {
+        "command": "changelens.acceptHunkAtCursor",
+        "title": "Accept Block at Cursor",
+        "category": "ChangeLens",
+        "icon": "$(check)"
+      },
+      {
+        "command": "changelens.revertHunkAtCursor",
+        "title": "Revert Block at Cursor",
+        "category": "ChangeLens",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "changelens.clearState",
+        "title": "Clear All Tracked State",
+        "category": "ChangeLens"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "changelens.viewAsList",
+          "when": "view == changelens.changes && changelens.viewMode == tree",
+          "group": "navigation@0"
+        },
+        {
+          "command": "changelens.viewAsTree",
+          "when": "view == changelens.changes && changelens.viewMode == list",
+          "group": "navigation@0"
+        },
+        {
+          "command": "changelens.acceptAll",
+          "when": "view == changelens.changes",
+          "group": "navigation@1"
+        },
+        {
+          "command": "changelens.revertAll",
+          "when": "view == changelens.changes",
+          "group": "navigation@2"
+        },
+        {
+          "command": "changelens.refresh",
+          "when": "view == changelens.changes",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "changelens.openFile",
+          "when": "view == changelens.changes && viewItem == changelens.file",
+          "group": "inline@0"
+        },
+        {
+          "command": "changelens.acceptFile",
+          "when": "view == changelens.changes && viewItem == changelens.file",
+          "group": "inline@1"
+        },
+        {
+          "command": "changelens.revertFile",
+          "when": "view == changelens.changes && viewItem == changelens.file",
+          "group": "inline@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "changelens.acceptHunkAtCursor",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "group": "navigation@1"
+        },
+        {
+          "command": "changelens.revertHunkAtCursor",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "group": "navigation@2"
+        },
+        {
+          "command": "changelens.openFile",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "group": "navigation@3"
+        },
+        {
+          "command": "changelens.acceptFile",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "group": "1_changelens@1"
+        },
+        {
+          "command": "changelens.revertFile",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "group": "1_changelens@2"
+        },
+        {
+          "command": "changelens.acceptHunkAtCursor",
+          "when": "resourceScheme == file && changelens.activeFileHasChanges",
+          "group": "1_changelens@1"
+        },
+        {
+          "command": "changelens.revertHunkAtCursor",
+          "when": "resourceScheme == file && changelens.activeFileHasChanges",
+          "group": "1_changelens@2"
+        },
+        {
+          "command": "changelens.openDiff",
+          "when": "resourceScheme == file && changelens.activeFileHasChanges",
+          "group": "1_changelens@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "changelens.openDiff",
+          "when": "false"
+        },
+        {
+          "command": "changelens.acceptHunk",
+          "when": "false"
+        },
+        {
+          "command": "changelens.revertHunk",
+          "when": "false"
+        },
+        {
+          "command": "changelens.openFile",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ChangeLens",
+      "properties": {
+        "changelens.respectGitignore": {
+          "type": "boolean",
+          "default": true,
+          "order": 1,
+          "description": "Exclude files matched by the workspace .gitignore from tracking."
+        },
+        "changelens.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/.git/**",
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/out/**",
+            "**/build/**",
+            "**/*.lock",
+            "**/package-lock.json"
+          ],
+          "order": 2,
+          "description": "Additional glob patterns excluded from tracking."
+        },
+        "changelens.maxFileSizeKb": {
+          "type": "number",
+          "default": 512,
+          "order": 3,
+          "description": "Files larger than this are tracked at file level only, without content baselines."
+        },
+        "changelens.maxTrackedFiles": {
+          "type": "number",
+          "default": 20000,
+          "order": 4,
+          "description": "Shows a warning when the number of tracked files exceeds this threshold."
+        },
+        "changelens.reviewMode": {
+          "type": "string",
+          "enum": [
+            "unified",
+            "diffEditor"
+          ],
+          "enumDescriptions": [
+            "Shows added and deleted lines inline in a single read-only editor.",
+            "Uses VS Code's built-in diff editor."
+          ],
+          "default": "unified",
+          "order": 5,
+          "description": "How a pending file is opened for review."
+        },
+        "changelens.showCodeLensInEditor": {
+          "type": "boolean",
+          "default": true,
+          "order": 6,
+          "description": "Show Accept/Revert CodeLens above pending changes in the regular editor."
+        },
+        "changelens.decorateEditor": {
+          "type": "boolean",
+          "default": true,
+          "order": 7,
+          "description": "Highlight pending added lines in the regular editor."
+        },
+        "changelens.viewMode": {
+          "type": "string",
+          "enum": [
+            "tree",
+            "list"
+          ],
+          "default": "tree",
+          "order": 8,
+          "description": "How the Changes view groups files."
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "changelens.addedResourceForeground",
+        "description": "Color for files added by an external tool and awaiting review.",
+        "defaults": {
+          "dark": "gitDecoration.addedResourceForeground",
+          "light": "gitDecoration.addedResourceForeground",
+          "highContrast": "gitDecoration.addedResourceForeground",
+          "highContrastLight": "gitDecoration.addedResourceForeground"
+        }
+      },
+      {
+        "id": "changelens.modifiedResourceForeground",
+        "description": "Color for files modified by an external tool and awaiting review.",
+        "defaults": {
+          "dark": "gitDecoration.modifiedResourceForeground",
+          "light": "gitDecoration.modifiedResourceForeground",
+          "highContrast": "gitDecoration.modifiedResourceForeground",
+          "highContrastLight": "gitDecoration.modifiedResourceForeground"
+        }
+      },
+      {
+        "id": "changelens.deletedResourceForeground",
+        "description": "Color for files deleted by an external tool and awaiting review.",
+        "defaults": {
+          "dark": "gitDecoration.deletedResourceForeground",
+          "light": "gitDecoration.deletedResourceForeground",
+          "highContrast": "gitDecoration.deletedResourceForeground",
+          "highContrastLight": "gitDecoration.deletedResourceForeground"
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "clean": "rimraf --glob dist \"*.vsix\"",
+    "bundle": "node scripts/build.mjs",
+    "bundle:dev": "node scripts/build.mjs --dev",
+    "bundle:watch": "node scripts/build.mjs --dev --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "audit:bundle": "node scripts/audit-bundle.mjs",
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm test",
+    "vscode:prepublish": "npm run bundle && npm run audit:bundle",
+    "package:local": "npm run clean && vsce package",
+    "prepare": "git config core.hooksPath .githooks || exit 0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/vscode": "1.100.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.28.1",
+    "ovsx": "^1.1.0",
+    "oxfmt": "^0.62.0",
+    "oxlint": "^1.77.0",
+    "oxlint-tsgolint": "^7.0.2001",
+    "rimraf": "^6.1.3",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

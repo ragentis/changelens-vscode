@@ -1,0 +1,11 @@
+# Deny everything, then allow exactly what ships.
+**
+
+!package.json
+!dist/extension.js
+!assets/changelens.svg
+!assets/icon.png
+!README.md
+!CHANGELOG.md
+!LICENSE
+!SECURITY.md

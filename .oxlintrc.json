@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "promise", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "options": {
+    "typeAware": true,
+    "denyWarnings": true
+  },
+  "ignorePatterns": ["dist"],
+  "rules": {
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+    "typescript/prefer-promise-reject-errors": "error",
+    "typescript/require-await": "error",
+    "typescript/restrict-plus-operands": "error",
+    "eslint/eqeqeq": "error",
+    "eslint/no-var": "error",
+    "eslint/no-console": "error",
+    // Preserve the established underscored private backing fields, including VS Code emitters.
+    "eslint/no-underscore-dangle": "off",
+    // Keep small helpers near their use sites.
+    "unicorn/consistent-function-scoping": "off",
+    // Both sort sites clone their inputs first, so neither mutates shared state.
+    "unicorn/no-array-sort": "off"
+  },
+  "overrides": [
+    {
+      // Build scripts are untyped JavaScript and intentionally write CLI output.
+      "files": ["scripts/**/*.mjs"],
+      "rules": {
+        "eslint/no-console": "off",
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    },
+    {
+      // Baseline, filesystem, and model mutations are intentionally sequential to preserve
+      // state order and avoid unbounded I/O.
+      "files": [
+        "src/commands/index.ts",
+        "src/model/changeModel.ts",
+        "src/storage/baselineStore.ts",
+        "src/tracking/filter.ts"
+      ],
+      "rules": {
+        "eslint/no-await-in-loop": "off"
+      }
+    }
+  ]
+}
