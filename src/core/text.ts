@@ -17,6 +17,16 @@ export function splitLines(text: string): string[] {
   return stripBom(text).split(/\r\n|\n|\r/);
 }
 
+export function looksBinary(bytes: Uint8Array): boolean {
+  const limit = Math.min(bytes.length, 8192);
+  for (let i = 0; i < limit; i++) {
+    if (bytes[i] === 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** `ignoreBOM` keeps a leading U+FEFF in the string, so the stored baseline round-trips. */
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
@@ -30,14 +40,4 @@ export function decodeUtf8(bytes: Uint8Array): string | null {
   } catch {
     return null;
   }
-}
-
-export function looksBinary(bytes: Uint8Array): boolean {
-  const limit = Math.min(bytes.length, 8192);
-  for (let i = 0; i < limit; i++) {
-    if (bytes[i] === 0) {
-      return true;
-    }
-  }
-  return false;
 }

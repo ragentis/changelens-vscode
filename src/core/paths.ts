@@ -15,14 +15,6 @@ export function normalizeKey(fsPath: string): string {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-let tempCounter = 0;
-
-/** The counter keeps two concurrent writes of the same target from sharing a temp file. */
-export function tempPath(target: string): string {
-  tempCounter += 1;
-  return `${target}.${process.pid}.${tempCounter}.tmp`;
-}
-
 /** True when `child` resolves inside `root` rather than escaping through `..`. */
 export function isInside(root: string, child: string): boolean {
   const relative = path.relative(root, child);
@@ -32,4 +24,12 @@ export function isInside(root: string, child: string): boolean {
     !relative.startsWith(`..${path.sep}`) &&
     !path.isAbsolute(relative)
   );
+}
+
+let tempCounter = 0;
+
+/** The counter keeps two concurrent writes of the same target from sharing a temp file. */
+export function tempPath(target: string): string {
+  tempCounter += 1;
+  return `${target}.${process.pid}.${tempCounter}.tmp`;
 }
