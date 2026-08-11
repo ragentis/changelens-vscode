@@ -25,11 +25,3 @@ export function isInside(root: string, child: string): boolean {
     !path.isAbsolute(relative)
   );
 }
-
-let tempCounter = 0;
-
-/** The counter keeps two concurrent writes of the same target from sharing a temp file. */
-export function tempPath(target: string): string {
-  tempCounter += 1;
-  return `${target}.${process.pid}.${tempCounter}.tmp`;
-}
