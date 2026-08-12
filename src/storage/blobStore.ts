@@ -67,6 +67,7 @@ export class BlobStore {
     if (cached !== undefined) {
       return cached;
     }
+
     try {
       const buffer = await fs.readFile(this.pathOf(hash));
       const text = (await gunzip(buffer)).toString("utf8");
@@ -75,6 +76,7 @@ export class BlobStore {
         this.suspect.add(hash);
         return undefined;
       }
+
       this.suspect.delete(hash);
       this.cache.put(hash, text);
       return text;
@@ -91,9 +93,11 @@ export class BlobStore {
   async write(text: string): Promise<string> {
     const hash = hashText(text);
     this.adoptedDuringCollect?.set(hash, text);
+
     if (!(await this.isStored(hash))) {
       await this.store(hash, text);
     }
+
     this.cache.put(hash, text);
     return hash;
   }
@@ -103,6 +107,7 @@ export class BlobStore {
     if (this.suspect.has(hash)) {
       return false;
     }
+
     return fs.access(this.pathOf(hash)).then(
       () => true,
       () => false,
@@ -118,12 +123,14 @@ export class BlobStore {
     if (running) {
       return running;
     }
+
     const write = this.writeBlob(hash, text).finally(() => {
       // Only the current write clears its slot; a later one may have replaced it.
       if (this.storing.get(hash) === write) {
         this.storing.delete(hash);
       }
     });
+
     this.storing.set(hash, write);
     return write;
   }
@@ -150,12 +157,14 @@ export class BlobStore {
   ): Promise<CollectReport> {
     const adopted = new Map<string, string>();
     this.adoptedDuringCollect = adopted;
+
     try {
       await this.sweep(referenced, adopted, report);
     } finally {
       this.adoptedDuringCollect = undefined;
       await this.restoreAdopted(adopted);
     }
+
     return report;
   }
 
@@ -189,6 +198,7 @@ export class BlobStore {
     const bucketPath = path.join(this.root, bucket);
     const files = await readdirOrEmpty(bucketPath, report);
     let removed = 0;
+
     for (const file of files) {
       // The age cutoff is the final guard for unregistered writes still in flight.
       const hash = file.endsWith(".gz") ? bucket + file.slice(0, -3) : undefined;
@@ -199,6 +209,7 @@ export class BlobStore {
         removed += 1;
       }
     }
+
     if (removed === files.length) {
       // Bucket removal is optional; a concurrent write may make it non-empty, so ignore failure.
       await fs.rmdir(bucketPath).catch(() => undefined);

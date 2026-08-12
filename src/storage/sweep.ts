@@ -30,6 +30,7 @@ export async function readdirOrEmpty(dir: string, report: CollectReport): Promis
     if (!isErrno(error, "ENOENT")) {
       note(report, error);
     }
+
     return [];
   }
 }
@@ -43,6 +44,7 @@ export async function removeIfOlderThan(
     if ((await fs.stat(target)).mtimeMs >= cutoff) {
       return false;
     }
+
     await fs.rm(target, { recursive: true, force: true });
     return true;
   } catch (error) {

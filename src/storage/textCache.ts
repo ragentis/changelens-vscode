@@ -23,6 +23,7 @@ export class TextCache {
     if (text === undefined) {
       return undefined;
     }
+
     this.entries.delete(hash);
     this.entries.set(hash, text);
     return text;
@@ -32,6 +33,7 @@ export class TextCache {
     this.drop(hash);
     this.entries.set(hash, text);
     this.bytes += TextCache.sizeOf(text);
+
     // Keep the newest entry even when it exceeds the budget; otherwise large content could never
     // benefit from the cache.
     for (const oldest of this.entries.keys()) {

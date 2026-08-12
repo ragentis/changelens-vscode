@@ -52,6 +52,7 @@ function locate(entry: BaselineEntry, roots: string[]): StoredLocation {
       best = { index, relative };
     }
   });
+
   return best
     ? { root: best.index, path: best.relative.split(path.sep).join("/") }
     : { path: entry.path };
@@ -59,6 +60,7 @@ function locate(entry: BaselineEntry, roots: string[]): StoredLocation {
 
 function writeEntry(entry: BaselineEntry, roots: string[]): StoredFile {
   const location = locate(entry, roots);
+
   if (entry.kind === "opaque") {
     return { ...location, kind: "opaque", reason: entry.reason, stat: entry.stat };
   }
@@ -113,15 +115,18 @@ function resolve(
   if (typeof stored.path !== "string") {
     return undefined;
   }
+
   if (typeof stored.root === "number") {
     const root = rootMap[stored.root];
     if (root === undefined) {
       return undefined;
     }
+
     const absolute = path.resolve(root, stored.path.split("/").join(path.sep));
     // A hand-edited "../../elsewhere" must not produce an entry outside the workspace.
     return isInside(root, absolute) ? absolute : undefined;
   }
+
   // Without a root, a relative path would resolve against the process directory.
   return path.isAbsolute(stored.path) ? stored.path : undefined;
 }
@@ -130,16 +135,19 @@ function readEntry(value: unknown, rootMap: (string | undefined)[]): BaselineEnt
   if (!isRecord(value)) {
     return undefined;
   }
+
   const absolute = resolve(value, rootMap);
   if (absolute === undefined) {
     return undefined;
   }
+
   if (value.kind === "text" && isBlobHash(value.blob)) {
     const clean = asDiskStat(value.clean);
     return clean
       ? { path: absolute, kind: "text", blob: value.blob, clean }
       : { path: absolute, kind: "text", blob: value.blob };
   }
+
   const stat = asDiskStat(value.stat);
   if (
     value.kind === "opaque" &&
@@ -174,11 +182,13 @@ export function parseIndex(raw: unknown, currentRoots: string[]): ParsedIndex | 
   ) {
     return undefined;
   }
+
   const storedRoots = raw.roots;
   const roots = currentRoots.length > 0 ? currentRoots : storedRoots;
   const { mapped, arrived } = mapRoots(storedRoots, roots);
   const entries: BaselineEntry[] = [];
   let skipped = 0;
+
   for (const file of raw.files) {
     const entry = readEntry(file, mapped);
     if (entry) {
@@ -187,6 +197,7 @@ export function parseIndex(raw: unknown, currentRoots: string[]): ParsedIndex | 
       skipped += 1;
     }
   }
+
   // Derive staleness from accepted entries and adopted roots instead of duplicating each drop or
   // remap case.
   const needsRewrite =

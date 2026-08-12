@@ -91,6 +91,7 @@ export class BaselineStore {
     if (roots.length === 0) {
       return;
     }
+
     this.roots = roots;
     for (const [key, entry] of this.entries) {
       if (!roots.some((root) => isInside(root, entry.path))) {
@@ -108,13 +109,16 @@ export class BaselineStore {
     if (!parsed) {
       return;
     }
+
     this.roots = parsed.roots;
     this._arrivedRoots = parsed.arrived;
     this._initialized = parsed.initialized;
     for (const entry of parsed.entries) {
       this.entries.set(normalizeKey(entry.path), entry);
     }
+
     this.persistedBlobs = textBlobs(this.entries.values());
+
     if (parsed.skipped > 0) {
       const noun = parsed.skipped === 1 ? "file" : "files";
       const subject = parsed.skipped === 1 ? "That file" : "Those files";
@@ -122,6 +126,7 @@ export class BaselineStore {
         `Could not load baseline data for ${parsed.skipped} ${noun}. ${subject} will appear as newly added.`,
       );
     }
+
     if (parsed.needsRewrite) {
       // Persist parser repairs even if the session makes no later changes.
       this.dirty = true;
@@ -142,6 +147,7 @@ export class BaselineStore {
       }
       return undefined;
     }
+
     let document: unknown;
     try {
       document = JSON.parse(raw);
@@ -152,6 +158,7 @@ export class BaselineStore {
       );
       return undefined;
     }
+
     const parsed = parseIndex(document, this.roots);
     if (!parsed) {
       this.onError(
@@ -191,13 +198,16 @@ export class BaselineStore {
     if (!entry) {
       return { kind: "none" };
     }
+
     if (entry.kind === "opaque") {
       return { kind: "opaque", reason: entry.reason };
     }
+
     const stored = await this.blobs.read(entry.blob);
     if (stored === undefined) {
       return { kind: "unreadable" };
     }
+
     return { kind: "text", text: stripBom(stored), hadBom: stored.startsWith(BOM) };
   }
 
@@ -221,6 +231,7 @@ export class BaselineStore {
     if (!entry || entry.kind !== "text" || matchesDisk(entry, stat)) {
       return;
     }
+
     entry.clean = stat;
     // A clean stat is only a cache hint; persist it with the next write instead of after every scan.
     this.dirty = true;
@@ -237,6 +248,7 @@ export class BaselineStore {
     if (!entry) {
       return;
     }
+
     this.entries.delete(oldKey);
     this.entries.set(normalizeKey(newFsPath), { ...entry, path: newFsPath });
     this.schedulePersist();
@@ -279,11 +291,13 @@ export class BaselineStore {
     if (!(await this.flush())) {
       return;
     }
+
     // Protect the union of memory and disk references; their snapshots may differ during a write.
     const referenced = textBlobs(this.entries.values());
     for (const blob of this.persistedBlobs) {
       referenced.add(blob);
     }
+
     const report = newReport();
     await this.blobs.collect(referenced, report);
     await this.sweepAbandonedWrites(report);
@@ -314,6 +328,7 @@ export class BaselineStore {
     if (this.flushTimer) {
       return;
     }
+
     this.flushTimer = setTimeout(() => {
       this.flushTimer = undefined;
       void this.flush();
@@ -326,14 +341,17 @@ export class BaselineStore {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
+
     if (!this.dirty) {
       // Propagate an in-flight write's result so collection cannot follow failed persistence.
       await this.writing;
       return this.lastWriteOk;
     }
+
     this.dirty = false;
     const payload = serializeIndex(this.entries.values(), this.roots, this._initialized);
     const blobs = textBlobs(this.entries.values());
+
     this.writing = this.writing.then(async () => {
       try {
         await writeFileAtomic(this.indexPath, JSON.stringify(payload));
@@ -350,6 +368,7 @@ export class BaselineStore {
       }
       return undefined;
     });
+
     await this.writing;
     return this.lastWriteOk;
   }

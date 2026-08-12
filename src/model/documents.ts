@@ -13,6 +13,7 @@ export function documentText(doc: vscode.TextDocument): string {
  */
 export function openDocument(uri: vscode.Uri): vscode.TextDocument | undefined {
   const target = normalizeKey(uri.fsPath);
+
   return vscode.workspace.textDocuments.find(
     (doc) =>
       doc.uri.scheme === uri.scheme && !doc.isClosed && normalizeKey(doc.uri.fsPath) === target,

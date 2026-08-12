@@ -21,5 +21,6 @@ export function textBlobs(entries: Iterable<BaselineEntry>): Set<string> {
       blobs.add(entry.blob);
     }
   }
+
   return blobs;
 }

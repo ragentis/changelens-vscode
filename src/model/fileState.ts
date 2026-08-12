@@ -94,6 +94,7 @@ export class FileStateReader {
       if (decoded === null) {
         return { kind: "opaque", reason: "binary", stat };
       }
+
       return {
         kind: "text",
         text: stripBom(decoded),

@@ -25,6 +25,7 @@ export function mapRoots(storedRoots: string[], currentRoots: string[]): RootMap
     if (at < 0) {
       return undefined;
     }
+
     taken.add(at);
     return currentRoots[at];
   });
