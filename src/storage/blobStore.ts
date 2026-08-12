@@ -16,7 +16,7 @@ import { TextCache } from "./textCache";
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
 
-/** Uses the first 128 bits of SHA-256; accidental collisions are negligible for a local blob store. */
+/** The first 128 bits of SHA-256 make accidental collisions negligible for this local store. */
 const HASH_LENGTH = 32;
 const HASH_PATTERN = new RegExp(`^[0-9a-f]{${HASH_LENGTH}}$`);
 
@@ -31,17 +31,17 @@ export function isBlobHash(value: unknown): value is string {
   return typeof value === "string" && HASH_PATTERN.test(value);
 }
 
-/**
- * Content-addressed gzip storage, independent of files and workspace layout.
- */
+/** Content-addressed gzip storage, independent of workspace layout. */
 export class BlobStore {
   private readonly cache: TextCache;
-  /** Blobs a read proved wrong: the next write of that hash must not trust the file on disk. */
+  /** Hashes whose disk blob failed validation; the next write must repair it. */
   private readonly suspect = new Set<string>();
   /**
-   * Blobs adopted during collection. Text is retained because a blob already selected for removal
-   * may need to be restored after the pass.
+   * Deduplicates writes by hash. Identical content shares one path, and concurrent renames onto it
+   * fail with `EPERM` on Windows.
    */
+  private readonly storing = new Map<string, Promise<void>>();
+  /** Text adopted during collection, retained in case the sweep removes its blob. */
   private adoptedDuringCollect: Map<string, string> | undefined;
 
   constructor(
@@ -70,7 +70,7 @@ export class BlobStore {
     try {
       const buffer = await fs.readFile(this.pathOf(hash));
       const text = (await gunzip(buffer)).toString("utf8");
-      // Gzip's CRC catches corruption; the hash also verifies the blob's identity.
+      // Gzip checks integrity; the hash verifies identity.
       if (hashText(text) !== hash) {
         this.suspect.add(hash);
         return undefined;
@@ -79,8 +79,7 @@ export class BlobStore {
       this.cache.put(hash, text);
       return text;
     } catch (error) {
-      // Missing blobs need no suspect entry: the write path restores them, and remembering each
-      // miss would grow the set for the whole session.
+      // Missing blobs are repaired by writes without growing the session-long suspect set.
       if (!isErrno(error, "ENOENT")) {
         this.suspect.add(hash);
       }
@@ -99,10 +98,7 @@ export class BlobStore {
     return hash;
   }
 
-  /**
-   * A blob already proven invalid does not count as stored, so the next write repairs it instead
-   * of preserving corruption across restarts.
-   */
+  /** A blob proven invalid must be rewritten even if its path still exists. */
   private async isStored(hash: string): Promise<boolean> {
     if (this.suspect.has(hash)) {
       return false;
@@ -113,7 +109,26 @@ export class BlobStore {
     );
   }
 
-  private async store(hash: string, text: string): Promise<void> {
+  /**
+   * Shares one write per hash. An existing target cannot turn failure into success because it may
+   * be the corrupt blob being repaired; genuine rejection reaches every caller.
+   */
+  private store(hash: string, text: string): Promise<void> {
+    const running = this.storing.get(hash);
+    if (running) {
+      return running;
+    }
+    const write = this.writeBlob(hash, text).finally(() => {
+      // Only the current write clears its slot; a later one may have replaced it.
+      if (this.storing.get(hash) === write) {
+        this.storing.delete(hash);
+      }
+    });
+    this.storing.set(hash, write);
+    return write;
+  }
+
+  private async writeBlob(hash: string, text: string): Promise<void> {
     const target = this.pathOf(hash);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await writeFileAtomic(target, await gzip(Buffer.from(text, "utf8")));
@@ -123,14 +138,11 @@ export class BlobStore {
   // ── collection ───────────────────────────────────────────────────────────
 
   /**
-   * Removes old entries outside the caller's protected set. Overlapping writes are protected by
-   * `adoptedDuringCollect`; the age cutoff protects newly created files, and
-   * {@link restoreAdopted} restores adoptions the sweep noticed too late. The map is installed
-   * before the first await so writes can register immediately.
+   * Removes old unprotected entries. References, young files, and writes registered in
+   * `adoptedDuringCollect` are protected; {@link restoreAdopted} repairs late adoptions.
    *
-   * Only one pass may run because concurrent passes would overwrite the shared adoption map.
-   *
-   * Passing `report` lets callers combine blob-tree failures with other cleanup work.
+   * Callers must serialize passes because concurrent ones would replace the shared adoption map.
+   * `report` lets the caller aggregate this sweep with other cleanup.
    */
   async collect(
     referenced: Set<string>,
@@ -147,10 +159,7 @@ export class BlobStore {
     return report;
   }
 
-  /**
-   * A late adoption can find a blob present after the sweep chose it for removal, skip writing, and
-   * then lose the file. Restoring missing adopted blobs after the pass closes that race.
-   */
+  /** Restores an adopted blob that disappeared after its write saw the old copy still present. */
   private async restoreAdopted(adopted: Map<string, string>): Promise<void> {
     for (const [hash, text] of adopted) {
       if (!(await this.isStored(hash))) {
@@ -181,8 +190,7 @@ export class BlobStore {
     const files = await readdirOrEmpty(bucketPath, report);
     let removed = 0;
     for (const file of files) {
-      // Unprotected entries include orphaned blobs, abandoned temp files, and entries from older
-      // layouts. The age cutoff is the final guard for writes in flight.
+      // The age cutoff is the final guard for unregistered writes still in flight.
       const hash = file.endsWith(".gz") ? bucket + file.slice(0, -3) : undefined;
       if (hash !== undefined && (referenced.has(hash) || adopted.has(hash))) {
         continue;

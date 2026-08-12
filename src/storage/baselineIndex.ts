@@ -9,10 +9,7 @@ export const INDEX_VERSION = 1;
 
 type StoredLocation = { root: number; path: string } | { path: string };
 
-/**
- * Persisted counterpart of `BaselineEntry`. The payload mirrors the runtime model, while the
- * location is encoded separately so workspace files can use relative paths.
- */
+/** Persisted `BaselineEntry`, with location separated so workspace paths can stay relative. */
 type StoredFile = StoredLocation &
   (
     | { kind: "text"; blob: string; clean?: DiskStat }
@@ -36,8 +33,8 @@ export interface ParsedIndex {
   /** Entries the validator rejected; those files will look newly added. */
   skipped: number;
   /**
-   * The parsed state differs from disk and must be rewritten even if the session makes no changes.
-   * This prevents stale blob references and roots from surviving into the next activation.
+   * Parsed state differs from disk and must be rewritten so repaired roots or blob references do
+   * not survive another activation.
    */
   needsRewrite: boolean;
 }
@@ -154,9 +151,7 @@ function readEntry(value: unknown, rootMap: (string | undefined)[]): BaselineEnt
   return undefined;
 }
 
-/**
- * Entries from closed folders are intentionally dropped, not counted as invalid.
- */
+/** Closed-folder entries are intentionally dropped rather than counted as invalid. */
 function isOrphaned(value: unknown, rootMap: (string | undefined)[]): boolean {
   return (
     isRecord(value) &&

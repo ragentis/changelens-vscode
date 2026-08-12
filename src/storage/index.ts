@@ -1,7 +1,4 @@
-/**
- * Public storage boundary for the rest of the extension. Persistence details stay internal so
- * callers depend only on baseline operations and comparison semantics.
- */
+/** Public storage API; index, blob, and sweep details remain internal. */
 export { matchesDisk } from "./baselineEntry";
 export type { BaselineEntry } from "./baselineEntry";
 export { BaselineStore } from "./baselineStore";

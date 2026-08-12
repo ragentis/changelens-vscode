@@ -23,14 +23,11 @@ import {
 const PERSIST_DEBOUNCE_MS = 1000;
 
 /**
- * Keeps opaque, absent, and unreadable baselines distinct. Conflating a lost blob with no baseline
- * would misclassify an existing file as newly added.
- *
- * `text` excludes the byte order mark; the blob retains it so restoration stays faithful.
+ * Keeps absent, unreadable, and contentless baselines distinct so a lost blob is not mistaken for
+ * a new file. `text` excludes the BOM, which remains in the blob for restoration.
  */
 export type BaselineRead =
   | { kind: "text"; text: string; hadBom: boolean }
-  /** Preserves why no baseline text was stored so consumers do not misreport it as lost. */
   | { kind: "opaque"; reason: OpaqueKind }
   | { kind: "none" }
   | { kind: "unreadable" };
@@ -40,9 +37,7 @@ export interface BaselineStoreOptions {
   onError?: (message: string, error?: unknown) => void;
 }
 
-/**
- * Baseline index and content-addressed storage used to compute pending changes.
- */
+/** Baseline index and content-addressed storage for pending-change derivation. */
 export class BaselineStore {
   private entries = new Map<string, BaselineEntry>();
   private roots: string[] = [];
@@ -80,23 +75,19 @@ export class BaselineStore {
   }
 
   /**
-   * Open folders absent from the loaded index. Rename, replacement, and addition are
-   * indistinguishable, so all are treated as newly arrived. Empty when no index was loaded.
+   * Open roots absent from the loaded index. Whether new, renamed, or replaced is unknowable, so
+   * all are treated as newly arrived. Empty when no index was loaded.
    */
   get arrivedRoots(): string[] {
     return this._arrivedRoots;
   }
 
   /**
-   * Sets roots used for relative paths and removes entries owned by closed folders. Must precede
-   * {@link load} so stored roots can be matched to the folders currently open.
-   *
-   * When other roots remain open, removing one also removes its entries. Otherwise they would be
-   * persisted as absolute paths and could return as stale baselines if the folder reopened.
+   * Sets roots before {@link load} can map stored paths. When roots remain, entries under closed
+   * roots are removed so they cannot be persisted as absolute paths and return if reopened.
    */
   setRoots(roots: string[]): void {
-    // An empty list may be transient; retaining the roots prevents an intervening persist from
-    // rewriting their entries as absolute paths.
+    // An empty list may be transient; keep roots so an intervening persist cannot absolutize them.
     if (roots.length === 0) {
       return;
     }
@@ -138,7 +129,6 @@ export class BaselineStore {
     }
   }
 
-  /** Reads and validates the index, returning undefined when it cannot be used. */
   private async readIndex(): Promise<ParsedIndex | undefined> {
     let raw: string;
     try {
@@ -212,8 +202,7 @@ export class BaselineStore {
   }
 
   /**
-   * `text` excludes the BOM; `hadBom` restores it in the blob. Replacing the baseline also drops
-   * the clean stat because it may no longer match the file.
+   * `text` excludes the BOM; `hadBom` restores it. Replacement drops the possibly stale clean stat.
    */
   async setText(fsPath: string, text: string, hadBom = false): Promise<void> {
     const blob = await this.blobs.write(hadBom ? BOM + text : text);
@@ -256,8 +245,8 @@ export class BaselineStore {
   // ── bulk operations ──────────────────────────────────────────────────────
 
   /**
-   * Drops all entries and leaves their blobs for collection. The store stays uninitialized until
-   * capture finishes, so a partial baseline is never treated as complete.
+   * Drops entries but leaves blobs for collection. The store remains uninitialized until capture
+   * completes, preventing review of a partial baseline.
    */
   reset(): void {
     if (this.entries.size === 0 && !this._initialized) {
@@ -269,10 +258,8 @@ export class BaselineStore {
   }
 
   /**
-   * Queues best-effort cleanup of unused blobs and abandoned index temp files.
-   *
-   * Sweeps cannot overlap because {@link BlobStore} has one adoption map. Queueing also gives each
-   * pass a fresh reference set.
+   * Queues best-effort cleanup of unused blobs and index temp files. Serialization protects
+   * BlobStore's single adoption map and gives every pass a fresh reference set.
    */
   async collectGarbage(): Promise<void> {
     this.collecting = this.collecting.then(async () => {
@@ -288,13 +275,11 @@ export class BaselineStore {
   }
 
   private async sweep(): Promise<void> {
-    // Never collect after a failed persist; the surviving index may reference blobs absent from
-    // memory.
+    // Skip collection after failed persistence: the surviving index may name blobs absent in memory.
     if (!(await this.flush())) {
       return;
     }
-    // Memory and disk can name different blobs during a write. Protect their union; blobs needed
-    // only by the older state become eligible on the next pass.
+    // Protect the union of memory and disk references; their snapshots may differ during a write.
     const referenced = textBlobs(this.entries.values());
     for (const blob of this.persistedBlobs) {
       referenced.add(blob);
@@ -311,10 +296,7 @@ export class BaselineStore {
     }
   }
 
-  /**
-   * Removes old index temp files left by process interruption or failed cleanup. The blob sweep
-   * never reaches them because they sit beside the index rather than under `blobs`.
-   */
+  /** Removes stale index temp files, which sit outside the blob sweep's tree. */
   private async sweepAbandonedWrites(report: CollectReport): Promise<void> {
     const cutoff = Date.now() - GC_MIN_AGE_MS;
     const indexName = path.basename(this.indexPath);
@@ -345,8 +327,7 @@ export class BaselineStore {
       this.flushTimer = undefined;
     }
     if (!this.dirty) {
-      // Another caller may still be writing. Propagate its result so collection cannot follow a
-      // failed persist.
+      // Propagate an in-flight write's result so collection cannot follow failed persistence.
       await this.writing;
       return this.lastWriteOk;
     }
