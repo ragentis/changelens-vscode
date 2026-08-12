@@ -100,19 +100,28 @@ export class FileEvents {
     const key = normalizeKey(doc.uri.fsPath);
 
     return this.work.enqueue(key, async () => {
-      const next = documentText(doc);
-      const prev = this.tracked.current(key);
-      if (prev === next) {
-        return;
+      if (await this.assimilateBuffer(key, doc.uri, documentText(doc))) {
+        await this.deriver.recompute(doc.uri);
       }
-
-      if (prev !== undefined && next !== this.tracked.disk(key)?.text) {
-        await this.rebaseOverBufferEdit(key, doc.uri, prev, next);
-      }
-
-      this.tracked.setCurrent(key, next);
-      await this.deriver.recompute(doc.uri);
     });
+  }
+
+  /**
+   * Folds a user buffer edit into the baseline. The last disk text distinguishes it from an
+   * external write; the result lets save avoid a duplicate recompute.
+   */
+  private async assimilateBuffer(key: string, uri: vscode.Uri, next: string): Promise<boolean> {
+    const prev = this.tracked.current(key);
+    if (prev === next) {
+      return false;
+    }
+
+    if (prev !== undefined && next !== this.tracked.disk(key)?.text) {
+      await this.rebaseOverBufferEdit(key, uri, prev, next);
+    }
+
+    this.tracked.setCurrent(key, next);
+    return true;
   }
 
   /** Rebases the user's edit onto the baseline, leaving only changes they did not make. */
@@ -146,17 +155,30 @@ export class FileEvents {
     await this.store.setText(uri.fsPath, rebased, baseline.hadBom);
   }
 
-  /** Save and open only record known content and finish synchronously, so they need no queue. */
-  handleSave(doc: vscode.TextDocument): void {
-    if (!this.filter.isTracked(doc.uri)) {
-      return;
+  /**
+   * Folds any edit still waiting in the buffer debounce before recording a save. Disk must move
+   * last, or `assimilateBuffer` would mistake the user's edit for already-known disk content.
+   */
+  handleSave(doc: vscode.TextDocument): Promise<void> {
+    if (!this.filter.isTracked(doc.uri) || this.work.defer(doc.uri)) {
+      return Promise.resolve();
     }
 
     const key = normalizeKey(doc.uri.fsPath);
-    // VS Code preserves the existing BOM on save, so the last disk reading remains valid.
-    this.tracked.setDisk(key, { text: documentText(doc), hadBom: this.tracked.disk(key)?.hadBom });
+    // Snapshot now: later keystrokes waiting behind this save have not reached disk.
+    const saved = documentText(doc);
+
+    return this.work.enqueue(key, async () => {
+      const folded = await this.assimilateBuffer(key, doc.uri, saved);
+      // VS Code preserves the existing BOM on save, so the last disk reading remains valid.
+      this.tracked.setDisk(key, { text: saved, hadBom: this.tracked.disk(key)?.hadBom });
+      if (folded) {
+        await this.deriver.recompute(doc.uri);
+      }
+    });
   }
 
+  /** Open only records content already in hand, so it needs no queue. */
   handleDocumentOpened(doc: vscode.TextDocument): void {
     if (!this.filter.isTracked(doc.uri)) {
       return;
@@ -281,12 +303,16 @@ export class FileEvents {
     }
   }
 
-  /** Callers own the scope check: neither the store nor this knows what is excluded. */
+  /**
+   * Adopts one file after the caller's scope check. Checking the limit here covers create, rename,
+   * and deferred replay after the original handler has returned.
+   */
   private adoptFile(uri: vscode.Uri): Promise<void> {
     const key = normalizeKey(uri.fsPath);
     return this.work.enqueue(key, async () => {
       await this.capture.storeBaselineFrom(uri);
       this.tracked.removePending(key);
+      this.context.warnIfCrowded();
     });
   }
 

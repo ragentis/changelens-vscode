@@ -31,11 +31,7 @@ export class BaselineCapture {
    */
   async captureAll(initial: boolean): Promise<void> {
     const uris = await this.context.listWorkspaceFiles();
-    if (uris.length > this.context.config.maxTrackedFiles) {
-      void vscode.window.showWarningMessage(
-        `ChangeLens is tracking ${uris.length} files, above the configured limit of ${this.context.config.maxTrackedFiles}. Add exclude patterns to keep the baseline small.`,
-      );
-    }
+    this.context.warnIfCrowded(uris.length);
 
     await vscode.window.withProgress(
       {
@@ -71,7 +67,11 @@ export class BaselineCapture {
 
   /** Baselines unknown in-scope files, optionally restricted by `within`. */
   async baselineUntracked(within?: (fsPath: string) => boolean): Promise<void> {
-    for (const uri of await this.context.listWorkspaceFiles()) {
+    const uris = await this.context.listWorkspaceFiles();
+    // A restricted root import can still warn from the workspace-wide listing already available.
+    this.context.warnIfCrowded(uris.length);
+
+    for (const uri of uris) {
       if (within && !within(uri.fsPath)) {
         continue;
       }
@@ -79,6 +79,9 @@ export class BaselineCapture {
         await this.storeBaselineFrom(uri);
       }
     }
+
+    // Scope listings omit retained excluded baselines, so recheck the stored total after additions.
+    this.context.warnIfCrowded();
   }
 
   async storeBaselineFrom(uri: vscode.Uri): Promise<void> {

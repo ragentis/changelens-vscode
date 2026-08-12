@@ -66,6 +66,8 @@ export class ReviewActions {
     }
 
     await this.deriver.recompute(file.uri, bulk);
+    // Accepting an addition can grow the baseline.
+    this.context.warnIfCrowded();
     if (!bulk) {
       await store.flush();
     }
@@ -83,6 +85,7 @@ export class ReviewActions {
 
     await this.store.setText(file.uri.fsPath, baseline.join(file.eol), file.currentHadBom);
     await this.deriver.recompute(file.uri);
+    this.context.warnIfCrowded();
     await this.store.flush();
     return true;
   }

@@ -1,10 +1,14 @@
 import * as vscode from "vscode";
 import type { BaselineStore } from "../storage";
-import type { TrackingConfig } from "../tracking/filter";
-import { excludeGlob, readConfig, WorkspaceFilter } from "../tracking/filter";
+import type { ChangeLensConfig } from "../config";
+import { excludeGlob, readConfig } from "../config";
+import { WorkspaceFilter } from "../tracking/filter";
 import { FileStateReader } from "./fileState";
 import { FileWorkQueue } from "./fileWork";
 import { TrackedFiles } from "./trackedFiles";
+
+/** Coalesces bursts of checks without suppressing later warnings. */
+const WARNING_INTERVAL_MS = 60_000;
 
 /**
  * Shared model state and workspace access. Capture, events, derivation, and review intentionally
@@ -16,9 +20,10 @@ export class ModelContext implements vscode.Disposable {
   readonly filter: WorkspaceFilter;
   readonly reader: FileStateReader;
   /** Replaced wholesale by {@link applyConfig}, so it is read through the context, never copied. */
-  config: TrackingConfig;
+  config: ChangeLensConfig;
 
   private readonly emitter = new vscode.EventEmitter<void>();
+  private lastWarning = 0;
 
   readonly onDidChange = this.emitter.event;
 
@@ -32,13 +37,30 @@ export class ModelContext implements vscode.Disposable {
     this.emitter.fire();
   }
 
-  /** Re-reads the settings and the open folders, then rebuilds the filter from both. */
+  /** Rebuilds the filter before publishing config, so events cannot mix old scope with new limits. */
   async applyConfig(): Promise<void> {
-    this.config = readConfig();
+    const config = readConfig();
     this.store.setRoots(
       (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
     );
-    await this.filter.rebuild(this.config);
+    await this.filter.rebuild(config);
+    this.config = config;
+  }
+
+  /**
+   * Warns when a supplied candidate count, or the stored baseline size, exceeds the limit. Capture
+   * passes its existing listing to warn before reading every file; repeated checks are throttled.
+   */
+  warnIfCrowded(count = this.store.size): void {
+    const limit = this.config.maxTrackedFiles;
+    if (count <= limit || Date.now() - this.lastWarning < WARNING_INTERVAL_MS) {
+      return;
+    }
+
+    this.lastWarning = Date.now();
+    void vscode.window.showWarningMessage(
+      `ChangeLens is tracking ${count} files, above the configured limit of ${limit}. Add exclude patterns to keep the baseline small.`,
+    );
   }
 
   /** Every in-scope file of every open folder. */

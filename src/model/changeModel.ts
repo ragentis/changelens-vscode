@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { normalizeKey } from "../core/paths";
 import { type BaselineStore, matchesDisk } from "../storage";
-import type { TrackingConfig } from "../tracking/filter";
+import type { ChangeLensConfig } from "../config";
 import { BaselineCapture } from "./baselineCapture";
 import { FileEvents } from "./fileEvents";
 import type { DeferredEvent } from "./fileWork";
@@ -38,7 +38,7 @@ export class ChangeModel implements vscode.Disposable {
 
   // ── what is pending ──────────────────────────────────────────────────────
 
-  get config(): TrackingConfig {
+  get config(): ChangeLensConfig {
     return this.context.config;
   }
 
@@ -80,8 +80,8 @@ export class ChangeModel implements vscode.Disposable {
     return this.events.handleBufferChange(doc);
   }
 
-  handleSave(doc: vscode.TextDocument): void {
-    this.events.handleSave(doc);
+  handleSave(doc: vscode.TextDocument): Promise<void> {
+    return this.events.handleSave(doc);
   }
 
   handleDocumentOpened(doc: vscode.TextDocument): void {
@@ -130,6 +130,8 @@ export class ChangeModel implements vscode.Disposable {
         await this.runCapture(true);
       }
 
+      // A loaded baseline can exceed the limit without any root arriving.
+      this.context.warnIfCrowded();
       this.ready = true;
     });
     this.fire();
@@ -137,7 +139,11 @@ export class ChangeModel implements vscode.Disposable {
   }
 
   reloadConfig(): Promise<void> {
-    return this.exclusive(() => this.context.applyConfig());
+    return this.exclusive(async () => {
+      await this.context.applyConfig();
+      // A lower limit can cross the threshold without changing the baseline.
+      this.context.warnIfCrowded();
+    });
   }
 
   /**
