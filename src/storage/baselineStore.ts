@@ -30,7 +30,8 @@ const PERSIST_DEBOUNCE_MS = 1000;
  */
 export type BaselineRead =
   | { kind: "text"; text: string; hadBom: boolean }
-  | { kind: "opaque" }
+  /** Preserves why no baseline text was stored so consumers do not misreport it as lost. */
+  | { kind: "opaque"; reason: OpaqueKind }
   | { kind: "none" }
   | { kind: "unreadable" };
 
@@ -201,7 +202,7 @@ export class BaselineStore {
       return { kind: "none" };
     }
     if (entry.kind === "opaque") {
-      return { kind: "opaque" };
+      return { kind: "opaque", reason: entry.reason };
     }
     const stored = await this.blobs.read(entry.blob);
     if (stored === undefined) {
