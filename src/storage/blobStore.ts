@@ -104,13 +104,6 @@ export class BlobStore {
     await fs.mkdir(this.root, { recursive: true });
   }
 
-  async reset(): Promise<void> {
-    this.cache.clear();
-    this.suspect.clear();
-    await fs.rm(this.root, { recursive: true, force: true });
-    await this.ensure();
-  }
-
   // ── read & write ─────────────────────────────────────────────────────────
 
   /** Undefined when the blob is missing, unreadable, or does not match the hash it is filed under. */
@@ -179,6 +172,10 @@ export class BlobStore {
    * protect their hash through `adoptedDuringCollect`, while the age cutoff also preserves newly
    * created files. The adoption set is installed before the first await so writes can register as
    * soon as collection starts.
+   *
+   * One pass at a time: that single set is what a concurrent call would take over and then clear
+   * away, leaving the pass still running with nothing to protect its writes. The store queues its
+   * callers so that cannot happen.
    */
   async collect(referenced: Set<string>): Promise<void> {
     const adopted = new Set<string>();
