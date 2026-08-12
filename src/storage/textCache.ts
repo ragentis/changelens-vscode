@@ -1,11 +1,11 @@
-/** Byte-bounded least-recently-used text cache, keyed by blob hash. */
+/** Least-recently-used text cache with an approximate byte budget, keyed by blob hash. */
 export class TextCache {
   private readonly entries = new Map<string, string>();
   private bytes = 0;
 
   constructor(private readonly budget: number) {}
 
-  /** Approximated from UTF-16 code units, which is close enough to bound a cache. */
+  /** Approximate payload size from UTF-16 code units. */
   private static sizeOf(text: string): number {
     return text.length * 2;
   }

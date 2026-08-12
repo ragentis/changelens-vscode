@@ -1,11 +1,24 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { isErrno, writeFileAtomic } from "../core/files";
+import {
+  type DiskStat,
+  isErrno,
+  isTempFileFor,
+  type OpaqueKind,
+  writeFileAtomic,
+} from "../core/files";
 import { isInside, normalizeKey } from "../core/paths";
 import { BOM, stripBom } from "../core/text";
-import { type BaselineEntry, type DiskStat, matchesDisk, type OpaqueKind } from "./baselineEntry";
+import { type BaselineEntry, matchesDisk, textBlobs } from "./baselineEntry";
 import { type ParsedIndex, parseIndex, serializeIndex } from "./baselineIndex";
 import { BlobStore } from "./blobStore";
+import {
+  type CollectReport,
+  GC_MIN_AGE_MS,
+  newReport,
+  readdirOrEmpty,
+  removeIfOlderThan,
+} from "./sweep";
 
 const PERSIST_DEBOUNCE_MS = 1000;
 
@@ -255,7 +268,7 @@ export class BaselineStore {
   }
 
   /**
-   * Queues best-effort removal of blobs referenced by neither memory nor the persisted index.
+   * Queues best-effort cleanup of unused blobs and abandoned index temp files.
    *
    * Sweeps cannot overlap because {@link BlobStore} has one adoption map. Queueing also gives each
    * pass a fresh reference set.
@@ -285,13 +298,29 @@ export class BaselineStore {
     for (const blob of this.persistedBlobs) {
       referenced.add(blob);
     }
-    const report = await this.blobs.collect(referenced);
+    const report = newReport();
+    await this.blobs.collect(referenced, report);
+    await this.sweepAbandonedWrites(report);
     if (report.failed > 0) {
       const noun = report.failed === 1 ? "file" : "files";
       this.onError(
         `Could not remove ${report.failed} unused baseline ${noun}. Cleanup will be retried later.`,
         report.error,
       );
+    }
+  }
+
+  /**
+   * Removes old index temp files left by process interruption or failed cleanup. The blob sweep
+   * never reaches them because they sit beside the index rather than under `blobs`.
+   */
+  private async sweepAbandonedWrites(report: CollectReport): Promise<void> {
+    const cutoff = Date.now() - GC_MIN_AGE_MS;
+    const indexName = path.basename(this.indexPath);
+    for (const name of await readdirOrEmpty(this.root, report)) {
+      if (isTempFileFor(name, indexName)) {
+        await removeIfOlderThan(path.join(this.root, name), cutoff, report);
+      }
     }
   }
 
@@ -342,14 +371,4 @@ export class BaselineStore {
     await this.writing;
     return this.lastWriteOk;
   }
-}
-
-function textBlobs(entries: Iterable<BaselineEntry>): Set<string> {
-  const blobs = new Set<string>();
-  for (const entry of entries) {
-    if (entry.kind === "text") {
-      blobs.add(entry.blob);
-    }
-  }
-  return blobs;
 }

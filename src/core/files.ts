@@ -1,17 +1,36 @@
 import * as fs from "node:fs/promises";
 
+/** File stat fields used as a cheap unchanged-content hint. */
+export interface DiskStat {
+  size: number;
+  mtimeMs: number;
+}
+
+/** Why a file has no usable text: its bytes are not text, or it is past the size limit. */
+export type OpaqueKind = "binary" | "tooLarge";
+
+const TEMP_SUFFIX = ".tmp";
+
 let tempCounter = 0;
 
-/** The counter keeps two concurrent writes of the same target from sharing a temp file. */
+/** The PID separates processes; the counter separates concurrent writes within this one. */
 function nextTempPath(target: string): string {
   tempCounter += 1;
-  return `${target}.${process.pid}.${tempCounter}.tmp`;
+  return `${target}.${process.pid}.${tempCounter}${TEMP_SUFFIX}`;
 }
 
 /**
- * Writes through a temp file, so a failed write leaves the previous content in place rather than
- * a truncated file. A write that succeeded but failed to rename would otherwise leave its temp
- * file behind for good, and nothing else ever looks in these directories.
+ * Recognizes the temp-file pattern used by {@link writeFileAtomic}. Both arguments are basenames;
+ * callers scope cleanup to the target directory and apply an age cutoff.
+ */
+export function isTempFileFor(name: string, target: string): boolean {
+  return name.startsWith(`${target}.`) && name.endsWith(TEMP_SUFFIX);
+}
+
+/**
+ * Writes through a unique sibling temp file, so failure does not truncate the previous content.
+ * On error it tries to remove the temp; process interruption or failed cleanup can leave one for a
+ * later sweep.
  */
 export async function writeFileAtomic(target: string, data: string | Buffer): Promise<void> {
   const tmp = nextTempPath(target);

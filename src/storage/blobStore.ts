@@ -4,6 +4,13 @@ import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { promisify } from "node:util";
 import { isErrno, writeFileAtomic } from "../core/files";
+import {
+  type CollectReport,
+  GC_MIN_AGE_MS,
+  newReport,
+  readdirOrEmpty,
+  removeIfOlderThan,
+} from "./sweep";
 import { TextCache } from "./textCache";
 
 const gzip = promisify(zlib.gzip);
@@ -14,8 +21,6 @@ const HASH_LENGTH = 32;
 const HASH_PATTERN = new RegExp(`^[0-9a-f]{${HASH_LENGTH}}$`);
 
 const CACHE_BUDGET_BYTES = 32 * 1024 * 1024;
-/** Protects newly created blobs and temp files from collection running alongside a write. */
-const GC_MIN_AGE_MS = 60_000;
 
 function hashText(text: string): string {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex").slice(0, HASH_LENGTH);
@@ -24,20 +29,6 @@ function hashText(text: string): string {
 /** Rejects malformed hashes before path construction can escape the blob directory. */
 export function isBlobHash(value: unknown): value is string {
   return typeof value === "string" && HASH_PATTERN.test(value);
-}
-
-/**
- * Aggregates per-entry collection failures so one unreadable directory does not abort the pass
- * and the caller can report one error.
- */
-export interface CollectReport {
-  failed: number;
-  error: unknown;
-}
-
-function note(report: CollectReport, error: unknown): void {
-  report.failed += 1;
-  report.error ??= error;
 }
 
 /**
@@ -138,10 +129,14 @@ export class BlobStore {
    * before the first await so writes can register immediately.
    *
    * Only one pass may run because concurrent passes would overwrite the shared adoption map.
+   *
+   * Passing `report` lets callers combine blob-tree failures with other cleanup work.
    */
-  async collect(referenced: Set<string>): Promise<CollectReport> {
+  async collect(
+    referenced: Set<string>,
+    report: CollectReport = newReport(),
+  ): Promise<CollectReport> {
     const adopted = new Map<string, string>();
-    const report: CollectReport = { failed: 0, error: undefined };
     this.adoptedDuringCollect = adopted;
     try {
       await this.sweep(referenced, adopted, report);
@@ -200,37 +195,5 @@ export class BlobStore {
       // Bucket removal is optional; a concurrent write may make it non-empty, so ignore failure.
       await fs.rmdir(bucketPath).catch(() => undefined);
     }
-  }
-}
-
-/** A missing directory has nothing to sweep and is not an error. */
-async function readdirOrEmpty(dir: string, report: CollectReport): Promise<string[]> {
-  try {
-    return await fs.readdir(dir);
-  } catch (error) {
-    if (!isErrno(error, "ENOENT")) {
-      note(report, error);
-    }
-    return [];
-  }
-}
-
-async function removeIfOlderThan(
-  target: string,
-  cutoff: number,
-  report: CollectReport,
-): Promise<boolean> {
-  try {
-    if ((await fs.stat(target)).mtimeMs >= cutoff) {
-      return false;
-    }
-    await fs.rm(target, { recursive: true, force: true });
-    return true;
-  } catch (error) {
-    // Another remover reaching the entry first already achieved the desired result.
-    if (!isErrno(error, "ENOENT")) {
-      note(report, error);
-    }
-    return false;
   }
 }

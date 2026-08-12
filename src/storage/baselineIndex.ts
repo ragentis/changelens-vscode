@@ -1,6 +1,7 @@
 import * as path from "node:path";
+import type { DiskStat, OpaqueKind } from "../core/files";
 import { isInside } from "../core/paths";
-import type { BaselineEntry, DiskStat, OpaqueKind } from "./baselineEntry";
+import type { BaselineEntry } from "./baselineEntry";
 import { isBlobHash } from "./blobStore";
 import { mapRoots } from "./rootMapping";
 
