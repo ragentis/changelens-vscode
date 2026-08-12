@@ -6,8 +6,8 @@ export interface DiskStat {
 export type OpaqueKind = "binary" | "tooLarge";
 
 /**
- * `clean` is the stat of the file at a moment its content was known to equal the baseline.
- * It is absent whenever that is unknown, which forces a real comparison instead of a guess.
+ * `clean` is the file stat captured when its content was known to match the baseline. Its absence
+ * forces a content comparison.
  */
 export type BaselineEntry =
   | { path: string; kind: "text"; blob: string; clean?: DiskStat }

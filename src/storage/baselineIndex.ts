@@ -9,8 +9,8 @@ export const INDEX_VERSION = 1;
 type StoredLocation = { root: number; path: string } | { path: string };
 
 /**
- * Persisted counterpart of `BaselineEntry`: the payload intentionally mirrors the runtime model,
- * while the location is encoded separately so paths can be stored relative to a workspace root.
+ * Persisted counterpart of `BaselineEntry`. The payload mirrors the runtime model, while the
+ * location is encoded separately so workspace files can use relative paths.
  */
 type StoredFile = StoredLocation &
   (
@@ -27,18 +27,16 @@ export interface IndexFile {
 
 export interface ParsedIndex {
   initialized: boolean;
-  /** The roots the entries were resolved against, which the store adopts as its own. */
+  /** Roots used to resolve the entries and then adopted by the store. */
   roots: string[];
   entries: BaselineEntry[];
-  /** Open folders the index knew nothing about, so nothing under them has a baseline yet. */
+  /** Open folders absent from the index; their files have no baseline yet. */
   arrived: string[];
   /** Entries the validator rejected; those files will look newly added. */
   skipped: number;
   /**
-   * The parsed entries or current roots no longer match the document on disk, so the store must
-   * rewrite it even if this session makes no changes. Otherwise collection could remove blobs
-   * still referenced by the stale index, or a root known only in memory could look newly arrived
-   * again next time and silently baseline files that appeared in it meanwhile.
+   * The parsed state differs from disk and must be rewritten even if the session makes no changes.
+   * This prevents stale blob references and roots from surviving into the next activation.
    */
   needsRewrite: boolean;
 }
@@ -91,9 +89,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Whole-document validation, because `files[].root` is a position in this array. Dropping the
- * bad elements instead would shift every later root, quietly re-pointing entries at a folder
- * they never belonged to; rejecting the index only costs a recapture.
+ * Validates the whole array because `files[].root` is positional. Dropping one bad element would
+ * silently re-point later entries; rejecting the index only costs a recapture.
  */
 function isRootArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
@@ -110,7 +107,7 @@ function asDiskStat(value: unknown): DiskStat | undefined {
   return { size, mtimeMs };
 }
 
-/** The inverse of {@link locate}: undefined whenever the stored location cannot be trusted. */
+/** Inverse of {@link locate}; returns undefined when the stored location cannot be trusted. */
 function resolve(
   stored: Record<string, unknown>,
   rootMap: (string | undefined)[],
@@ -157,8 +154,7 @@ function readEntry(value: unknown, rootMap: (string | undefined)[]): BaselineEnt
 }
 
 /**
- * An entry belonging to a folder that is not open now. Dropping it is the design rather than a
- * defect, so it must not be counted among the entries the validator rejected.
+ * Entries from closed folders are intentionally dropped, not counted as invalid.
  */
 function isOrphaned(value: unknown, rootMap: (string | undefined)[]): boolean {
   return (
@@ -195,8 +191,8 @@ export function parseIndex(raw: unknown, currentRoots: string[]): ParsedIndex | 
       skipped += 1;
     }
   }
-  // Compared against what serializing would produce now rather than enumerating the reasons a
-  // document can go stale, so a new reason cannot be forgotten here.
+  // Derive staleness from accepted entries and adopted roots instead of duplicating each drop or
+  // remap case.
   const needsRewrite =
     entries.length !== raw.files.length ||
     roots.length !== storedRoots.length ||

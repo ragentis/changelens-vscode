@@ -10,8 +10,8 @@ import { BlobStore } from "./blobStore";
 const PERSIST_DEBOUNCE_MS = 1000;
 
 /**
- * Keeps opaque, absent, and unreadable baselines distinct. Collapsing them into one null would
- * make a lost blob look like a new file and hide real changes.
+ * Keeps opaque, absent, and unreadable baselines distinct. Conflating a lost blob with no baseline
+ * would misclassify an existing file as newly added.
  *
  * `text` excludes the byte order mark; the blob retains it so restoration stays faithful.
  */
@@ -27,8 +27,7 @@ export interface BaselineStoreOptions {
 }
 
 /**
- * The baseline every pending change is measured against: an index of tracked files on top of a
- * content-addressed blob store.
+ * Baseline index and content-addressed storage used to compute pending changes.
  */
 export class BaselineStore {
   private entries = new Map<string, BaselineEntry>();
@@ -38,8 +37,10 @@ export class BaselineStore {
   private flushTimer: NodeJS.Timeout | undefined;
   private writing: Promise<void> = Promise.resolve();
   private collecting: Promise<void> = Promise.resolve();
-  /** Result shared with callers that only wait for an index write already in flight. */
+  /** Result shared with callers waiting for an index write already in flight. */
   private lastWriteOk = true;
+  /** Blobs referenced by the index on disk, which can differ from memory during a write. */
+  private persistedBlobs = new Set<string>();
   private _initialized = false;
   private readonly blobs: BlobStore;
   private readonly onError: (message: string, error?: unknown) => void;
@@ -65,25 +66,23 @@ export class BaselineStore {
   }
 
   /**
-   * Open workspace folders absent from the loaded index. Their files have no baseline; a folder
-   * that was renamed, replaced or newly opened looks the same, so the caller treats all three as
-   * newly arrived. Empty when no index was loaded.
+   * Open folders absent from the loaded index. Rename, replacement, and addition are
+   * indistinguishable, so all are treated as newly arrived. Empty when no index was loaded.
    */
   get arrivedRoots(): string[] {
     return this._arrivedRoots;
   }
 
   /**
-   * Sets workspace roots used to store relative paths and discard entries owned by closed folders.
-   * Must be called before {@link load} so stored roots can be matched to folders currently open.
+   * Sets roots used for relative paths and removes entries owned by closed folders. Must precede
+   * {@link load} so stored roots can be matched to the folders currently open.
    *
-   * When other roots remain open, a root removed during a session loses its entries here. Keeping
-   * them would serialize them as absolute paths, allowing stale baselines to return if the folder
-   * were later reopened.
+   * When other roots remain open, removing one also removes its entries. Otherwise they would be
+   * persisted as absolute paths and could return as stale baselines if the folder reopened.
    */
   setRoots(roots: string[]): void {
-    // Treat an empty list as a transient window state. Keeping the previous roots prevents an
-    // intervening persist from rewriting their entries as absolute paths.
+    // An empty list may be transient; retaining the roots prevents an intervening persist from
+    // rewriting their entries as absolute paths.
     if (roots.length === 0) {
       return;
     }
@@ -110,6 +109,7 @@ export class BaselineStore {
     for (const entry of parsed.entries) {
       this.entries.set(normalizeKey(entry.path), entry);
     }
+    this.persistedBlobs = textBlobs(this.entries.values());
     if (parsed.skipped > 0) {
       const noun = parsed.skipped === 1 ? "file" : "files";
       const subject = parsed.skipped === 1 ? "That file" : "Those files";
@@ -118,7 +118,7 @@ export class BaselineStore {
       );
     }
     if (parsed.needsRewrite) {
-      // Persist the parser's repairs even if this session makes no later changes.
+      // Persist parser repairs even if the session makes no later changes.
       this.dirty = true;
       await this.flush();
     }
@@ -198,8 +198,8 @@ export class BaselineStore {
   }
 
   /**
-   * `text` must be free of the byte order mark; `hadBom` puts it back into the stored blob.
-   * Any previous clean stat is dropped, because the new baseline may not match the file.
+   * `text` excludes the BOM; `hadBom` restores it in the blob. Replacing the baseline also drops
+   * the clean stat because it may no longer match the file.
    */
   async setText(fsPath: string, text: string, hadBom = false): Promise<void> {
     const blob = await this.blobs.write(hadBom ? BOM + text : text);
@@ -207,21 +207,19 @@ export class BaselineStore {
     this.schedulePersist();
   }
 
-  /** Tracks a file whose content is deliberately not stored, identified by its stat alone. */
+  /** Tracks contentless files by stat alone. */
   setOpaque(fsPath: string, reason: OpaqueKind, stat: DiskStat): void {
     this.entries.set(normalizeKey(fsPath), { path: fsPath, kind: "opaque", reason, stat });
     this.schedulePersist();
   }
 
-  /** Records that the file on disk was just proven identical to its text baseline. */
   markClean(key: string, stat: DiskStat): void {
     const entry = this.entries.get(key);
     if (!entry || entry.kind !== "text" || matchesDisk(entry, stat)) {
       return;
     }
     entry.clean = stat;
-    // A clean stat is only a cache hint; persist it with the next real write instead of scheduling
-    // one after every scan.
+    // A clean stat is only a cache hint; persist it with the next write instead of after every scan.
     this.dirty = true;
   }
 
@@ -244,8 +242,8 @@ export class BaselineStore {
   // ── bulk operations ──────────────────────────────────────────────────────
 
   /**
-   * Drops all entries but leaves their blobs for collection. The empty store is uninitialized so
-   * a failed capture cannot be mistaken for a complete baseline on the next activation.
+   * Drops all entries and leaves their blobs for collection. The store stays uninitialized until
+   * capture finishes, so a partial baseline is never treated as complete.
    */
   reset(): void {
     if (this.entries.size === 0 && !this._initialized) {
@@ -257,21 +255,18 @@ export class BaselineStore {
   }
 
   /**
-   * Queues best-effort removal of blobs no longer referenced by the persisted index.
+   * Queues best-effort removal of blobs referenced by neither memory nor the persisted index.
    *
-   * Sweeps cannot overlap because {@link BlobStore} has one adoption set. Queueing also lets each
-   * sweep build a fresh reference set after the previous one finishes.
+   * Sweeps cannot overlap because {@link BlobStore} has one adoption map. Queueing also gives each
+   * pass a fresh reference set.
    */
   async collectGarbage(): Promise<void> {
     this.collecting = this.collecting.then(async () => {
       try {
         await this.sweep();
       } catch (error) {
-        // Keep the queue usable after a best-effort failure; a later sweep can retry.
-        this.onError(
-          "Some unused baseline data could not be removed. Cleanup will be retried later.",
-          error,
-        );
+        // Per-entry failures are reported by the sweep; this catches a failure of the pass itself.
+        this.onError("Baseline cleanup did not finish. It will be retried later.", error);
       }
       return undefined;
     });
@@ -279,18 +274,25 @@ export class BaselineStore {
   }
 
   private async sweep(): Promise<void> {
-    // Never collect against state that failed to persist; the surviving index may still reference
-    // blobs absent from memory.
+    // Never collect after a failed persist; the surviving index may reference blobs absent from
+    // memory.
     if (!(await this.flush())) {
       return;
     }
-    const referenced = new Set<string>();
-    for (const entry of this.entries.values()) {
-      if (entry.kind === "text") {
-        referenced.add(entry.blob);
-      }
+    // Memory and disk can name different blobs during a write. Protect their union; blobs needed
+    // only by the older state become eligible on the next pass.
+    const referenced = textBlobs(this.entries.values());
+    for (const blob of this.persistedBlobs) {
+      referenced.add(blob);
     }
-    await this.blobs.collect(referenced);
+    const report = await this.blobs.collect(referenced);
+    if (report.failed > 0) {
+      const noun = report.failed === 1 ? "file" : "files";
+      this.onError(
+        `Could not remove ${report.failed} unused baseline ${noun}. Cleanup will be retried later.`,
+        report.error,
+      );
+    }
   }
 
   // ── persistence ──────────────────────────────────────────────────────────
@@ -313,20 +315,21 @@ export class BaselineStore {
       this.flushTimer = undefined;
     }
     if (!this.dirty) {
-      // Even when `dirty` is false, another caller may still be writing. Propagate that result so
-      // collection cannot run after a failed persist.
+      // Another caller may still be writing. Propagate its result so collection cannot follow a
+      // failed persist.
       await this.writing;
       return this.lastWriteOk;
     }
     this.dirty = false;
     const payload = serializeIndex(this.entries.values(), this.roots, this._initialized);
+    const blobs = textBlobs(this.entries.values());
     this.writing = this.writing.then(async () => {
       try {
         await writeFileAtomic(this.indexPath, JSON.stringify(payload));
         this.lastWriteOk = true;
+        this.persistedBlobs = blobs;
       } catch (error) {
-        // Keep the queue resolved so later writes still run; callers receive the failure through
-        // `lastWriteOk`.
+        // Keep the queue resolved so later writes run; `lastWriteOk` carries the failure.
         this.dirty = true;
         this.lastWriteOk = false;
         this.onError(
@@ -339,4 +342,14 @@ export class BaselineStore {
     await this.writing;
     return this.lastWriteOk;
   }
+}
+
+function textBlobs(entries: Iterable<BaselineEntry>): Set<string> {
+  const blobs = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind === "text") {
+      blobs.add(entry.blob);
+    }
+  }
+  return blobs;
 }

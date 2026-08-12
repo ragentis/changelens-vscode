@@ -25,9 +25,23 @@ export function isBlobHash(value: unknown): value is string {
   return typeof value === "string" && HASH_PATTERN.test(value);
 }
 
+/**
+ * Aggregates per-entry collection failures so one unreadable directory does not abort the pass
+ * and the caller can report one error.
+ */
+export interface CollectReport {
+  failed: number;
+  error: unknown;
+}
+
+function note(report: CollectReport, error: unknown): void {
+  report.failed += 1;
+  report.error ??= error;
+}
+
 // ── cache ──────────────────────────────────────────────────────────────────
 
-/** Least-recently-used text cache with a byte budget, so a large workspace cannot fill memory. */
+/** Byte-bounded least-recently-used text cache. */
 class TextCache {
   private readonly entries = new Map<string, string>();
   private bytes = 0;
@@ -61,9 +75,8 @@ class TextCache {
     this.drop(hash);
     this.entries.set(hash, text);
     this.bytes += TextCache.sizeOf(text);
-    // The newest entry may exceed the budget by itself. Older entries are still evicted, but
-    // keeping this one prevents the cache from becoming useless for content larger than its
-    // configured budget.
+    // Keep the newest entry even when it exceeds the budget; otherwise large content could never
+    // benefit from the cache.
     for (const oldest of this.entries.keys()) {
       if (this.bytes <= this.budget || oldest === hash) {
         return;
@@ -79,15 +92,17 @@ class TextCache {
 }
 
 /**
- * Content-addressed gzip storage. Knows nothing about files or the workspace: a blob is text
- * identified by the hash of that text, which is what makes deduplication and collection work.
+ * Content-addressed gzip storage, independent of files and workspace layout.
  */
 export class BlobStore {
   private readonly cache: TextCache;
   /** Blobs a read proved wrong: the next write of that hash must not trust the file on disk. */
   private readonly suspect = new Set<string>();
-  /** Set while collection runs, so a blob adopted mid-pass is not treated as an orphan. */
-  private adoptedDuringCollect: Set<string> | undefined;
+  /**
+   * Blobs adopted during collection. Text is retained because a blob already selected for removal
+   * may need to be restored after the pass.
+   */
+  private adoptedDuringCollect: Map<string, string> | undefined;
 
   constructor(
     private readonly root: string,
@@ -115,7 +130,7 @@ export class BlobStore {
     try {
       const buffer = await fs.readFile(this.pathOf(hash));
       const text = (await gunzip(buffer)).toString("utf8");
-      // Gzip's CRC covers corruption; this also catches a blob that is not what it claims to be.
+      // Gzip's CRC catches corruption; the hash also verifies the blob's identity.
       if (hashText(text) !== hash) {
         this.suspect.add(hash);
         return undefined;
@@ -124,8 +139,8 @@ export class BlobStore {
       this.cache.put(hash, text);
       return text;
     } catch (error) {
-      // A blob that is simply absent is nothing to distrust: the write path finds no file and
-      // stores it anyway. Remembering every one of those would grow the set for the whole session.
+      // Missing blobs need no suspect entry: the write path restores them, and remembering each
+      // miss would grow the set for the whole session.
       if (!isErrno(error, "ENOENT")) {
         this.suspect.add(hash);
       }
@@ -136,7 +151,7 @@ export class BlobStore {
   /** Stores the text if it is not already there and returns its hash. */
   async write(text: string): Promise<string> {
     const hash = hashText(text);
-    this.adoptedDuringCollect?.add(hash);
+    this.adoptedDuringCollect?.set(hash, text);
     if (!(await this.isStored(hash))) {
       await this.store(hash, text);
     }
@@ -145,8 +160,8 @@ export class BlobStore {
   }
 
   /**
-   * A blob a read already proved wrong does not count as stored: accepting the file would leave
-   * the corruption in place and the baseline would be unreadable again after a restart.
+   * A blob already proven invalid does not count as stored, so the next write repairs it instead
+   * of preserving corruption across restarts.
    */
   private async isStored(hash: string): Promise<boolean> {
     if (this.suspect.has(hash)) {
@@ -168,29 +183,46 @@ export class BlobStore {
   // ── collection ───────────────────────────────────────────────────────────
 
   /**
-   * Removes old storage entries not referenced by the current index. Writes that overlap the sweep
-   * protect their hash through `adoptedDuringCollect`, while the age cutoff also preserves newly
-   * created files. The adoption set is installed before the first await so writes can register as
-   * soon as collection starts.
+   * Removes old entries outside the caller's protected set. Overlapping writes are protected by
+   * `adoptedDuringCollect`; the age cutoff protects newly created files, and
+   * {@link restoreAdopted} restores adoptions the sweep noticed too late. The map is installed
+   * before the first await so writes can register immediately.
    *
-   * One pass at a time: that single set is what a concurrent call would take over and then clear
-   * away, leaving the pass still running with nothing to protect its writes. The store queues its
-   * callers so that cannot happen.
+   * Only one pass may run because concurrent passes would overwrite the shared adoption map.
    */
-  async collect(referenced: Set<string>): Promise<void> {
-    const adopted = new Set<string>();
+  async collect(referenced: Set<string>): Promise<CollectReport> {
+    const adopted = new Map<string, string>();
+    const report: CollectReport = { failed: 0, error: undefined };
     this.adoptedDuringCollect = adopted;
     try {
-      await this.sweep(referenced, adopted);
+      await this.sweep(referenced, adopted, report);
     } finally {
       this.adoptedDuringCollect = undefined;
+      await this.restoreAdopted(adopted);
+    }
+    return report;
+  }
+
+  /**
+   * A late adoption can find a blob present after the sweep chose it for removal, skip writing, and
+   * then lose the file. Restoring missing adopted blobs after the pass closes that race.
+   */
+  private async restoreAdopted(adopted: Map<string, string>): Promise<void> {
+    for (const [hash, text] of adopted) {
+      if (!(await this.isStored(hash))) {
+        await this.store(hash, text);
+      }
     }
   }
 
-  private async sweep(referenced: Set<string>, adopted: Set<string>): Promise<void> {
+  private async sweep(
+    referenced: Set<string>,
+    adopted: Map<string, string>,
+    report: CollectReport,
+  ): Promise<void> {
     const cutoff = Date.now() - GC_MIN_AGE_MS;
-    for (const bucket of await readdirOrEmpty(this.root)) {
-      await this.sweepBucket(bucket, cutoff, referenced, adopted);
+    for (const bucket of await readdirOrEmpty(this.root, report)) {
+      await this.sweepBucket(bucket, cutoff, referenced, adopted, report);
     }
   }
 
@@ -198,41 +230,58 @@ export class BlobStore {
     bucket: string,
     cutoff: number,
     referenced: Set<string>,
-    adopted: Set<string>,
+    adopted: Map<string, string>,
+    report: CollectReport,
   ): Promise<void> {
     const bucketPath = path.join(this.root, bucket);
-    const files = await readdirOrEmpty(bucketPath);
+    const files = await readdirOrEmpty(bucketPath, report);
     let removed = 0;
     for (const file of files) {
-      // Every unprotected entry is a collection candidate: an orphaned blob, an abandoned temp
-      // file, or a leftover from an earlier layout. The age cutoff is the final guard for a write
-      // in flight.
+      // Unprotected entries include orphaned blobs, abandoned temp files, and entries from older
+      // layouts. The age cutoff is the final guard for writes in flight.
       const hash = file.endsWith(".gz") ? bucket + file.slice(0, -3) : undefined;
       if (hash !== undefined && (referenced.has(hash) || adopted.has(hash))) {
         continue;
       }
-      if (await removeIfOlderThan(path.join(bucketPath, file), cutoff)) {
+      if (await removeIfOlderThan(path.join(bucketPath, file), cutoff, report)) {
         removed += 1;
       }
     }
     if (removed === files.length) {
+      // Bucket removal is optional; a concurrent write may make it non-empty, so ignore failure.
       await fs.rmdir(bucketPath).catch(() => undefined);
     }
   }
 }
 
-async function readdirOrEmpty(dir: string): Promise<string[]> {
-  return fs.readdir(dir).catch(() => []);
+/** A missing directory has nothing to sweep and is not an error. */
+async function readdirOrEmpty(dir: string, report: CollectReport): Promise<string[]> {
+  try {
+    return await fs.readdir(dir);
+  } catch (error) {
+    if (!isErrno(error, "ENOENT")) {
+      note(report, error);
+    }
+    return [];
+  }
 }
 
-async function removeIfOlderThan(target: string, cutoff: number): Promise<boolean> {
+async function removeIfOlderThan(
+  target: string,
+  cutoff: number,
+  report: CollectReport,
+): Promise<boolean> {
   try {
     if ((await fs.stat(target)).mtimeMs >= cutoff) {
       return false;
     }
     await fs.rm(target, { recursive: true, force: true });
     return true;
-  } catch {
+  } catch (error) {
+    // Another remover reaching the entry first already achieved the desired result.
+    if (!isErrno(error, "ENOENT")) {
+      note(report, error);
+    }
     return false;
   }
 }

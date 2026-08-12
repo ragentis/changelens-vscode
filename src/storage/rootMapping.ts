@@ -8,15 +8,13 @@ export interface RootMapping {
 }
 
 /**
- * Matches stored roots to currently open folders by normalized path only. A path change leaves the
- * stored root unmatched and reports the new path as arrived.
+ * Matches stored roots to open folders by normalized path only. A path change leaves the old root
+ * unmatched and reports the new one as arrived.
  *
- * Intentionally avoids heuristics: moves, renames, and project swaps look identical. A wrong match
- * could diff one project against another project's baselines and let Revert restore the wrong
- * content. Folder names are not unique enough to disambiguate them.
+ * Moves, renames, and project swaps are indistinguishable, and folder names are not unique. A
+ * heuristic match could make Revert restore another project's content.
  *
- * Used only while loading the index. Folder changes during a session are handled by rescoping,
- * which gives new folders fresh baselines.
+ * Used only while loading the index; in-session folder changes are rescoped with fresh baselines.
  */
 export function mapRoots(storedRoots: string[], currentRoots: string[]): RootMapping {
   const taken = new Set<number>();
