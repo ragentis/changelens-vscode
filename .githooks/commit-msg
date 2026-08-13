@@ -1,0 +1,12 @@
+#!/bin/sh
+# Reject subjects Release Please cannot read before they reach `main`; CI will cover `--no-verify`.
+# `npm install` configures this hook path.
+
+subject="$(sed -n '1p' "$1")"
+
+# Generated merge and fixup subjects are either descriptive of no change or rewritten later.
+case "$subject" in
+  "Merge "* | "fixup! "* | "squash! "*) exit 0 ;;
+esac
+
+exec node "$(dirname "$0")/../scripts/check-commit-subject.mjs" "$subject"
