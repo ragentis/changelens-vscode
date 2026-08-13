@@ -30,6 +30,8 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private readonly subscription: vscode.Disposable;
   private roots: Node[] = [];
+  private readonly parents = new Map<Node, Node>();
+  private readonly byKey = new Map<string, FileNode>();
 
   constructor(private readonly model: ChangeModel) {
     this.subscription = model.onDidChange(() => this.refresh());
@@ -42,7 +44,34 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
 
   refresh(): void {
     this.roots = this.viewMode === "list" ? this.buildList() : this.buildTree();
+    this.parents.clear();
+    this.byKey.clear();
+    this.index(this.roots, undefined);
     this._onDidChangeTreeData.fire(undefined);
+  }
+
+  /** Indexes the finished tree, because folder compression rewrites nodes after they are built. */
+  private index(nodes: Node[], parent: Node | undefined): void {
+    for (const node of nodes) {
+      if (parent) {
+        this.parents.set(node, parent);
+      }
+      if (node.type === "folder") {
+        this.index(node.children, node);
+      } else {
+        this.byKey.set(node.file.key, node);
+      }
+    }
+  }
+
+  /** Required for `TreeView.reveal`, which expands a row by walking up to the root. */
+  getParent(element: Node): Node | undefined {
+    return this.parents.get(element);
+  }
+
+  /** Reveal works on node identity, and every refresh replaces the nodes, so look them up fresh. */
+  nodeForKey(key: string): Node | undefined {
+    return this.byKey.get(key);
   }
 
   private buildList(): Node[] {

@@ -1,7 +1,14 @@
 import * as vscode from "vscode";
 import type { BaselineStore } from "../storage";
-import type { ChangeLensConfig } from "../config";
-import { excludeGlob, readConfig } from "../config";
+import type { ChangeLensConfig, ReviewMode, ViewMode } from "../config";
+import {
+  excludeGlob,
+  normalizeReviewMode,
+  normalizeViewMode,
+  readConfig,
+  REVIEW_MODE_STATE_KEY,
+  VIEW_MODE_STATE_KEY,
+} from "../config";
 import { WorkspaceFilter } from "../tracking/filter";
 import { FileStateReader } from "./fileState";
 import { FileWorkQueue } from "./fileWork";
@@ -27,10 +34,39 @@ export class ModelContext implements vscode.Disposable {
 
   readonly onDidChange = this.emitter.event;
 
-  constructor(readonly store: BaselineStore) {
-    this.config = readConfig();
+  constructor(
+    readonly store: BaselineStore,
+    private readonly toggleState?: vscode.Memento,
+  ) {
+    this.config = this.read();
     this.filter = new WorkspaceFilter(this.config);
     this.reader = new FileStateReader(store, this.filter);
+  }
+
+  /** A stored toggle wins over its configured default, the way the SCM view resolves its mode. */
+  private read(): ChangeLensConfig {
+    const config = readConfig();
+    const viewMode = this.toggleState?.get<string>(VIEW_MODE_STATE_KEY);
+    const reviewMode = this.toggleState?.get<string>(REVIEW_MODE_STATE_KEY);
+    return {
+      ...config,
+      viewMode: viewMode === undefined ? config.viewMode : normalizeViewMode(viewMode),
+      reviewMode: reviewMode === undefined ? config.reviewMode : normalizeReviewMode(reviewMode),
+    };
+  }
+
+  /**
+   * Both setters publish only once the write lands. Publishing first would leave the model ahead
+   * of the view when the write rejects, because the caller never reaches the event that redraws it.
+   */
+  async setViewMode(mode: ViewMode): Promise<void> {
+    await this.toggleState?.update(VIEW_MODE_STATE_KEY, mode);
+    this.config = { ...this.config, viewMode: mode };
+  }
+
+  async setReviewMode(mode: ReviewMode): Promise<void> {
+    await this.toggleState?.update(REVIEW_MODE_STATE_KEY, mode);
+    this.config = { ...this.config, reviewMode: mode };
   }
 
   fire(): void {
@@ -39,7 +75,7 @@ export class ModelContext implements vscode.Disposable {
 
   /** Rebuilds the filter before publishing config, so events cannot mix old scope with new limits. */
   async applyConfig(): Promise<void> {
-    const config = readConfig();
+    const config = this.read();
     this.store.setRoots(
       (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
     );

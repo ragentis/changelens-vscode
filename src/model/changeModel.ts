@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { normalizeKey } from "../core/paths";
 import { type BaselineStore, matchesDisk } from "../storage";
-import type { ChangeLensConfig } from "../config";
+import type { ChangeLensConfig, ReviewMode, ViewMode } from "../config";
 import { BaselineCapture } from "./baselineCapture";
 import { FileEvents } from "./fileEvents";
 import type { DeferredEvent } from "./fileWork";
@@ -24,8 +24,8 @@ export class ChangeModel implements vscode.Disposable {
 
   ready = false;
 
-  constructor(store: BaselineStore) {
-    this.context = new ModelContext(store);
+  constructor(store: BaselineStore, viewModeState?: vscode.Memento) {
+    this.context = new ModelContext(store, viewModeState);
     this.onDidChange = this.context.onDidChange;
     this.deriver = new PendingDeriver(this.context);
     this.capture = new BaselineCapture(this.context, () => {
@@ -136,6 +136,20 @@ export class ChangeModel implements vscode.Disposable {
     });
     this.fire();
     void this.context.store.collectGarbage();
+  }
+
+  /** Grouping only, so it skips the lifecycle chain and never waits behind a capture. */
+  async setViewMode(mode: ViewMode): Promise<void> {
+    if (this.config.viewMode === mode) {
+      return;
+    }
+    await this.context.setViewMode(mode);
+    this.fire();
+  }
+
+  /** Decides how the next file is opened, so nothing on screen has to be redrawn. */
+  setReviewMode(mode: ReviewMode): Promise<void> {
+    return this.context.setReviewMode(mode);
   }
 
   reloadConfig(): Promise<void> {
