@@ -42,7 +42,8 @@
   ],
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true
+      "supported": false,
+      "description": "ChangeLens restores files over their current contents and runs Git in the workspace folder to follow branch changes, so it waits until the workspace is trusted."
     },
     "virtualWorkspaces": {
       "supported": false,
@@ -72,13 +73,23 @@
     "viewsWelcome": [
       {
         "view": "changelens.changes",
-        "when": "changelens.ready && !changelens.hasChanges",
+        "when": "changelens.status == ready && !changelens.hasChanges",
         "contents": "No pending changes.\n\nEdits made by AI agents or other external tools will show up here for review."
       },
       {
         "view": "changelens.changes",
-        "when": "!changelens.ready",
+        "when": "!changelens.status || changelens.status == capturing",
         "contents": "Capturing workspace baseline…"
+      },
+      {
+        "view": "changelens.changes",
+        "when": "changelens.status == noFolder",
+        "contents": "Open a folder to start reviewing changes.\n\nChangeLens compares a workspace against a baseline it captures, so it needs a folder on disk."
+      },
+      {
+        "view": "changelens.changes",
+        "when": "changelens.status == failed",
+        "contents": "ChangeLens could not capture a baseline, so it is not tracking this window.\n\n[Reload Window](command:workbench.action.reloadWindow)"
       }
     ],
     "commands": [
@@ -153,16 +164,6 @@
         "category": "ChangeLens"
       },
       {
-        "command": "changelens.toggleInlineDiff",
-        "title": "Toggle Inline Diff View",
-        "category": "ChangeLens"
-      },
-      {
-        "command": "changelens.configureDiffView",
-        "title": "Set Up Diff View for This Workspace",
-        "category": "ChangeLens"
-      },
-      {
         "command": "changelens.toggleReviewMode",
         "title": "Toggle Review Mode (Unified / Diff Editor)",
         "category": "ChangeLens"
@@ -178,38 +179,33 @@
         "title": "Revert Block at Cursor",
         "category": "ChangeLens",
         "icon": "$(discard)"
-      },
-      {
-        "command": "changelens.clearState",
-        "title": "Clear All Tracked State",
-        "category": "ChangeLens"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "changelens.viewAsList",
-          "when": "view == changelens.changes && changelens.viewMode == tree",
+          "when": "view == changelens.changes && changelens.status == ready && changelens.viewMode == tree",
           "group": "navigation@0"
         },
         {
           "command": "changelens.viewAsTree",
-          "when": "view == changelens.changes && changelens.viewMode == list",
+          "when": "view == changelens.changes && changelens.status == ready && changelens.viewMode == list",
           "group": "navigation@0"
         },
         {
           "command": "changelens.acceptAll",
-          "when": "view == changelens.changes",
+          "when": "view == changelens.changes && changelens.status == ready",
           "group": "navigation@1"
         },
         {
           "command": "changelens.revertAll",
-          "when": "view == changelens.changes",
+          "when": "view == changelens.changes && changelens.status == ready",
           "group": "navigation@2"
         },
         {
           "command": "changelens.refresh",
-          "when": "view == changelens.changes",
+          "when": "view == changelens.changes && changelens.status == ready",
           "group": "navigation@3"
         }
       ],
@@ -233,37 +229,37 @@
       "editor/title": [
         {
           "command": "changelens.acceptHunkAtCursor",
-          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "when": "(resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base) && changelens.activeFileHasHunks",
           "group": "navigation@1"
         },
         {
           "command": "changelens.revertHunkAtCursor",
-          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "when": "(resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base) && changelens.activeFileHasHunks",
           "group": "navigation@2"
         },
         {
           "command": "changelens.openFile",
-          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base",
           "group": "navigation@3"
         },
         {
           "command": "changelens.acceptFile",
-          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base",
           "group": "1_changelens@1"
         },
         {
           "command": "changelens.revertFile",
-          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review",
+          "when": "resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base",
           "group": "1_changelens@2"
         },
         {
           "command": "changelens.acceptHunkAtCursor",
-          "when": "resourceScheme == file && changelens.activeFileHasChanges",
+          "when": "resourceScheme == file && changelens.activeFileHasHunks",
           "group": "1_changelens@1"
         },
         {
           "command": "changelens.revertHunkAtCursor",
-          "when": "resourceScheme == file && changelens.activeFileHasChanges",
+          "when": "resourceScheme == file && changelens.activeFileHasHunks",
           "group": "1_changelens@2"
         },
         {
@@ -288,6 +284,50 @@
         {
           "command": "changelens.openFile",
           "when": "false"
+        },
+        {
+          "command": "changelens.refresh",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.acceptFile",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.revertFile",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.acceptAll",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.revertAll",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.acceptHunkAtCursor",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.revertHunkAtCursor",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.rebaseline",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.toggleReviewMode",
+          "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.viewAsList",
+          "when": "changelens.status == ready && changelens.viewMode == tree"
+        },
+        {
+          "command": "changelens.viewAsTree",
+          "when": "changelens.status == ready && changelens.viewMode == list"
         }
       ]
     },
@@ -298,7 +338,7 @@
           "type": "boolean",
           "default": true,
           "order": 1,
-          "description": "Exclude files matched by the workspace .gitignore from tracking."
+          "description": "Exclude files matched by the .gitignore in each workspace folder root. Nested .gitignore files are not read, and a rule cannot re-include a file inside an excluded folder."
         },
         "changelens.exclude": {
           "type": "array",
@@ -320,16 +360,18 @@
         "changelens.maxFileSizeKb": {
           "type": "number",
           "default": 512,
+          "minimum": 1,
           "order": 3,
           "description": "Files larger than this are tracked at file level only, without content baselines."
         },
         "changelens.maxTrackedFiles": {
           "type": "number",
           "default": 20000,
+          "minimum": 1,
           "order": 4,
-          "description": "Shows a warning when the number of tracked files exceeds this threshold."
+          "description": "Shows a warning when the number of files in the baseline exceeds this threshold."
         },
-        "changelens.reviewMode": {
+        "changelens.defaultReviewMode": {
           "type": "string",
           "enum": [
             "unified",
@@ -341,7 +383,7 @@
           ],
           "default": "unified",
           "order": 5,
-          "description": "How a pending file is opened for review."
+          "description": "How a pending file is opened for review until the Toggle Review Mode command is used. That toggle is remembered per workspace and takes precedence here."
         },
         "changelens.showCodeLensInEditor": {
           "type": "boolean",
@@ -355,15 +397,25 @@
           "order": 7,
           "description": "Highlight pending added lines in the regular editor."
         },
-        "changelens.viewMode": {
+        "changelens.defaultViewMode": {
           "type": "string",
           "enum": [
             "tree",
             "list"
           ],
+          "enumDescriptions": [
+            "Groups files under their folders.",
+            "Shows every file in one flat list, with its folder in the description."
+          ],
           "default": "tree",
           "order": 8,
-          "description": "How the Changes view groups files."
+          "description": "How the Changes view groups files until the view's own toggle is used. That toggle is remembered per workspace and takes precedence here."
+        },
+        "changelens.autoReveal": {
+          "type": "boolean",
+          "default": true,
+          "order": 9,
+          "description": "Select the active editor's file in the Changes view when it has pending changes."
         }
       }
     },
