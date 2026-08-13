@@ -13,7 +13,7 @@ const TEMP_SUFFIX = ".tmp";
 
 let tempCounter = 0;
 
-/** The PID separates processes; the counter separates concurrent writes within this one. */
+/** The PID separates processes; the counter separates concurrent writes within one process. */
 function nextTempPath(target: string): string {
   tempCounter += 1;
   return `${target}.${process.pid}.${tempCounter}${TEMP_SUFFIX}`;
@@ -28,9 +28,8 @@ export function isTempFileFor(name: string, target: string): boolean {
 }
 
 /**
- * Writes through a unique sibling temp file, so failure does not truncate the previous content.
- * On error it tries to remove the temp; process interruption or failed cleanup can leave one for a
- * later sweep.
+ * Writes through a unique sibling temp file so failure cannot truncate the existing target.
+ * Cleanup is best effort and never replaces the original write error; leftovers are swept later.
  */
 export async function writeFileAtomic(target: string, data: string | Buffer): Promise<void> {
   const tmp = nextTempPath(target);
@@ -38,7 +37,7 @@ export async function writeFileAtomic(target: string, data: string | Buffer): Pr
     await fs.writeFile(tmp, data);
     await fs.rename(tmp, target);
   } catch (error) {
-    await fs.rm(tmp, { force: true });
+    await fs.rm(tmp, { force: true }).catch(() => undefined);
     throw error;
   }
 }

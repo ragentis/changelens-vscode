@@ -13,16 +13,13 @@ export function normalizeKey(fsPath: string): string {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-/**
- * Normalized prefix used to match tracked descendants when an event names a directory rather than
- * each file under it.
- */
+/** Prefix used to match every tracked descendant of a directory event. */
 export function dirPrefix(fsPath: string): string {
   const key = normalizeKey(fsPath);
   return key.endsWith(path.sep) ? key : key + path.sep;
 }
 
-/** True only when `child` resolves to a strict descendant of `root`. */
+/** True only when `child` is a strict lexical descendant of `root`. */
 export function isInside(root: string, child: string): boolean {
   const relative = path.relative(root, child);
   return (
