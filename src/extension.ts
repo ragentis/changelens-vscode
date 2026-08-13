@@ -1,0 +1,193 @@
+import * as path from "node:path";
+import * as vscode from "vscode";
+import { registerCommands } from "./commands";
+import type { ViewMode } from "./config";
+import { ChangeModel } from "./model";
+import { BaselineStore } from "./storage";
+import { WorkspaceWatcher } from "./tracking/watcher";
+import { ChangesTreeProvider } from "./ui/changesTree";
+import { ChangeDecorationProvider } from "./ui/decorationProvider";
+import { EditorHighlighter } from "./ui/editorDecorations";
+import { HunkCodeLensProvider } from "./ui/hunkCodeLens";
+import { ReviewContentProvider } from "./ui/reviewContentProvider";
+import { BASE_SCHEME, CURRENT_SCHEME, fileKeyOf, isReviewUri, REVIEW_SCHEME } from "./ui/schemes";
+import { StatusBar } from "./ui/statusBar";
+
+const ERROR_NOTICE_INTERVAL_MS = 60_000;
+
+let activeStore: BaselineStore | undefined;
+let activeModel: ChangeModel | undefined;
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
+}
+
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  if (!vscode.workspace.workspaceFolders?.length || !context.storageUri) {
+    return;
+  }
+
+  const output = vscode.window.createOutputChannel("ChangeLens");
+  let lastNotice = 0;
+  const report = (message: string, error?: unknown): void => {
+    const detail = error === undefined ? "" : ` ${errorText(error)}`;
+    output.appendLine(`${message}${detail}`);
+    // A failed persist makes an Accept or a Reset look like it worked, so it has to reach the
+    // user rather than sit in a log nobody opens. Throttled to survive a failing disk.
+    if (Date.now() - lastNotice < ERROR_NOTICE_INTERVAL_MS) {
+      return;
+    }
+    lastNotice = Date.now();
+    void vscode.window.showWarningMessage(`ChangeLens: ${message}`, "Show Log").then((choice) => {
+      if (choice === "Show Log") {
+        output.show(true);
+      }
+      return undefined;
+    });
+  };
+  const store = new BaselineStore(path.join(context.storageUri.fsPath, "baselines"), {
+    onError: report,
+  });
+  activeStore = store;
+  const model = new ChangeModel(store, context.workspaceState);
+  activeModel = model;
+  context.subscriptions.push(store, model, output);
+
+  const tree = new ChangesTreeProvider(model);
+  const contentProvider = new ReviewContentProvider(model);
+  const decorations = new ChangeDecorationProvider(model);
+  const codeLens = new HunkCodeLensProvider(model);
+  const highlighter = new EditorHighlighter(model);
+  const statusBar = new StatusBar(model);
+
+  const updateActiveFileContext = () => {
+    const active = vscode.window.activeTextEditor?.document.uri;
+    const reviewed =
+      active && (active.scheme === "file" || isReviewUri(active))
+        ? model.get(fileKeyOf(active))
+        : undefined;
+    // Deletions and contentless files are pending but have no block to accept or revert.
+    const hasHunks =
+      reviewed !== undefined &&
+      !reviewed.opaqueReason &&
+      reviewed.status !== "deleted" &&
+      reviewed.hunks.length > 0;
+    void vscode.commands.executeCommand(
+      "setContext",
+      "changelens.activeFileHasChanges",
+      active?.scheme === "file" && reviewed !== undefined,
+    );
+    void vscode.commands.executeCommand("setContext", "changelens.activeFileHasHunks", hasHunks);
+  };
+
+  const treeView = vscode.window.createTreeView("changelens.changes", {
+    treeDataProvider: tree,
+    showCollapseAll: true,
+  });
+
+  const revealActiveFile = () => {
+    // `reveal` opens the view when it is hidden, which would pull the sidebar over whatever the
+    // user is doing, so this only runs once the panel is already on screen.
+    if (!treeView.visible || !model.config.autoReveal) {
+      return;
+    }
+    const active = vscode.window.activeTextEditor?.document.uri;
+    const node = active ? tree.nodeForKey(fileKeyOf(active)) : undefined;
+    if (node) {
+      // Selection follows the editor; focus must not, or it would leave the file being typed in.
+      void treeView.reveal(node, { select: true, focus: false });
+    }
+  };
+
+  let publishedViewMode: ViewMode | undefined;
+  const publishViewMode = () => {
+    if (model.config.viewMode === publishedViewMode) {
+      return;
+    }
+    const first = publishedViewMode === undefined;
+    publishedViewMode = model.config.viewMode;
+    void vscode.commands.executeCommand("setContext", "changelens.viewMode", publishedViewMode);
+    // Regrouping replaces every row, which drops the selection. Content changes deliberately do
+    // not reveal: the panel would keep reselecting while an agent writes.
+    if (!first) {
+      revealActiveFile();
+    }
+  };
+
+  context.subscriptions.push(
+    tree,
+    contentProvider,
+    decorations,
+    codeLens,
+    highlighter,
+    statusBar,
+    treeView,
+    treeView.onDidChangeVisibility(() => revealActiveFile()),
+    vscode.workspace.registerTextDocumentContentProvider(BASE_SCHEME, contentProvider),
+    vscode.workspace.registerTextDocumentContentProvider(CURRENT_SCHEME, contentProvider),
+    vscode.workspace.registerTextDocumentContentProvider(REVIEW_SCHEME, contentProvider),
+    vscode.window.registerFileDecorationProvider(decorations),
+    vscode.languages.registerCodeLensProvider(
+      [{ scheme: CURRENT_SCHEME }, { scheme: REVIEW_SCHEME }, { scheme: "file" }],
+      codeLens,
+    ),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      updateActiveFileContext();
+      revealActiveFile();
+    }),
+    model.onDidChange(() => {
+      void vscode.commands.executeCommand("setContext", "changelens.hasChanges", model.hasChanges);
+      updateActiveFileContext();
+      publishViewMode();
+    }),
+  );
+
+  registerCommands(context, model, store);
+  publishViewMode();
+
+  const watcher = new WorkspaceWatcher(model, () => onGitHeadChanged(model), {
+    onError: report,
+  });
+  context.subscriptions.push(watcher);
+
+  await model.initialize();
+  void vscode.commands.executeCommand("setContext", "changelens.ready", true);
+  void vscode.commands.executeCommand("setContext", "changelens.hasChanges", model.hasChanges);
+  watcher.activate();
+}
+
+/** A branch switch rewrites files wholesale; those writes are not agent changes. */
+async function onGitHeadChanged(model: ChangeModel): Promise<void> {
+  if (!model.ready) {
+    return;
+  }
+  if (!model.hasChanges) {
+    await model.captureBaseline(false);
+    return;
+  }
+  const answer = await vscode.window.showWarningMessage(
+    "The Git branch changed while ChangeLens has pending changes. Reset the baseline to the current workspace?",
+    {
+      modal: true,
+      detail:
+        "Keeping the baseline will show every file rewritten by the branch switch as a pending change.",
+    },
+    "Reset Baseline",
+    "Keep Pending Changes",
+  );
+  if (answer === "Reset Baseline") {
+    await model.captureBaseline(false);
+  }
+}
+
+/** Debounced index writes would otherwise be lost when a window closes right after an edit. */
+export async function deactivate(): Promise<void> {
+  const store = activeStore;
+  const model = activeModel;
+  activeStore = undefined;
+  activeModel = undefined;
+  // Handlers run detached from the event that started them, so a rebase or an accept can still
+  // be in flight. Flushing before it reaches the store would write the state it was replacing.
+  await model?.drain();
+  await store?.flush();
+}
