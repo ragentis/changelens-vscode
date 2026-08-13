@@ -25,6 +25,19 @@
     "typescript/restrict-plus-operands": "error",
     "eslint/eqeqeq": "error",
     "eslint/no-var": "error",
+    // `model` and `storage` each publish a barrel; reaching past it into their internals couples
+    // callers to collaborators that are meant to be reachable only through the facade.
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["**/model/*", "**/storage/*"],
+            "message": "Import from the folder barrel (\"../model\" or \"../storage\") instead of one of its internal files."
+          }
+        ]
+      }
+    ],
     "eslint/no-console": "error",
     // Preserve the established underscored private backing fields, including VS Code emitters.
     "eslint/no-underscore-dangle": "off",
@@ -51,12 +64,32 @@
       // state order and avoid unbounded I/O.
       "files": [
         "src/commands/index.ts",
+        "src/model/baselineCapture.ts",
         "src/model/changeModel.ts",
+        "src/model/fileEvents.ts",
+        "src/model/reviewActions.ts",
         "src/storage/baselineStore.ts",
+        "src/storage/blobStore.ts",
         "src/tracking/filter.ts"
       ],
       "rules": {
         "eslint/no-await-in-loop": "off"
+      }
+    },
+    {
+      // Unit tests exercise the internals a barrel deliberately hides, which is their job.
+      "files": ["test/**/*.ts"],
+      "rules": {
+        "eslint/no-restricted-imports": "off"
+      }
+    },
+    {
+      // The fake editor stands in for a module it cannot import, so the boundary between its
+      // own classes and the vscode API types is asserted. Workspace edits apply in order.
+      "files": ["test/helpers/vscode.ts"],
+      "rules": {
+        "eslint/no-await-in-loop": "off",
+        "typescript/no-unsafe-type-assertion": "off"
       }
     }
   ]
