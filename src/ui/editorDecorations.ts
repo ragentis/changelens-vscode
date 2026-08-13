@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
-import type { ChangeModel, PendingFile } from "../model";
+import type { ChangeModel } from "../model";
+import type { LineSpan } from "./hunkGeometry";
+import { clampSpan, placeHunks } from "./hunkGeometry";
 import { fileKeyOf, REVIEW_SCHEME } from "./schemes";
 
 export class EditorHighlighter implements vscode.Disposable {
@@ -50,58 +52,31 @@ export class EditorHighlighter implements vscode.Disposable {
 
   private render(editor: vscode.TextEditor): void {
     const scheme = editor.document.uri.scheme;
-    const isReview = scheme === REVIEW_SCHEME;
-    if (!isReview && (scheme !== "file" || !this.model.config.decorateEditor)) {
+    if (scheme !== REVIEW_SCHEME && (scheme !== "file" || !this.model.config.decorateEditor)) {
       this.clear(editor);
       return;
     }
-    const file = this.model.get(fileKeyOf(editor.document.uri));
-    if (!file || file.opaqueReason || file.status === "deleted") {
-      this.clear(editor);
-      return;
-    }
-    if (isReview) {
-      this.renderUnified(editor, file);
-    } else {
-      this.renderWorkingFile(editor, file);
-    }
-  }
-
-  private renderUnified(editor: vscode.TextEditor, file: PendingFile): void {
-    if (!file.unified) {
-      this.clear(editor);
-      return;
-    }
+    const placements = placeHunks(this.model.get(fileKeyOf(editor.document.uri)), scheme);
     const lastLine = Math.max(editor.document.lineCount - 1, 0);
     const addedRanges: vscode.Range[] = [];
     const deletedRanges: vscode.Range[] = [];
-    for (const hunk of file.unified.hunks) {
-      if (hunk.removedCount > 0) {
-        deletedRanges.push(lineSpan(hunk.removedStart, hunk.removedCount, lastLine));
+    const markers: vscode.Range[] = [];
+
+    for (const { removed, added, block } of placements) {
+      if (removed.count > 0) {
+        deletedRanges.push(toRange(removed, lastLine));
       }
-      if (hunk.addedCount > 0) {
-        addedRanges.push(lineSpan(hunk.addedStart, hunk.addedCount, lastLine));
+      if (added.count > 0) {
+        addedRanges.push(toRange(added, lastLine));
+      }
+      // A block the working file shows as neither: the lines it removed live only in the baseline.
+      if (removed.count === 0 && added.count === 0) {
+        markers.push(toRange(block, lastLine));
       }
     }
+
     editor.setDecorations(this.added, addedRanges);
     editor.setDecorations(this.deleted, deletedRanges);
-    editor.setDecorations(this.deletionMarker, []);
-  }
-
-  private renderWorkingFile(editor: vscode.TextEditor, file: PendingFile): void {
-    const lastLine = Math.max(editor.document.lineCount - 1, 0);
-    const addedRanges: vscode.Range[] = [];
-    const markers: vscode.Range[] = [];
-    for (const hunk of file.hunks) {
-      if (hunk.currLines.length > 0) {
-        addedRanges.push(lineSpan(hunk.currStart, hunk.currLines.length, lastLine));
-      } else {
-        const line = Math.min(hunk.currStart, lastLine);
-        markers.push(new vscode.Range(line, 0, line, 0));
-      }
-    }
-    editor.setDecorations(this.added, addedRanges);
-    editor.setDecorations(this.deleted, []);
     editor.setDecorations(this.deletionMarker, markers);
   }
 
@@ -115,8 +90,7 @@ export class EditorHighlighter implements vscode.Disposable {
   }
 }
 
-function lineSpan(start: number, count: number, lastLine: number): vscode.Range {
-  const from = Math.min(start, lastLine);
-  const to = Math.min(start + count - 1, lastLine);
-  return new vscode.Range(from, 0, to, 0);
+function toRange(span: LineSpan, lastLine: number): vscode.Range {
+  const { first, last } = clampSpan(span, lastLine);
+  return new vscode.Range(first, 0, last, 0);
 }
