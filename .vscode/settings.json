@@ -1,4 +1,5 @@
 {
+  "editor.defaultFormatter": "oxc.oxc-vscode",
   "github.copilot.chat.commitMessageGeneration.instructions": [
     {
       "file": ".github/commit-instructions.md"
