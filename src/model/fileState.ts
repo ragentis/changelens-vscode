@@ -74,6 +74,12 @@ export class FileStateReader {
       return { kind: "unreadable", stat: this.lastKnownStat(uri) };
     }
 
+    // A directory has no text, and the size a filesystem reports for one is not a file size.
+    // Checking the limit first would file the folder itself as `tooLarge` and put it up for review.
+    if (stated.isDirectory) {
+      return { kind: "unreadable", stat: stated.stat };
+    }
+
     const stat = stated.stat;
 
     // Either form may become the next baseline, so both must satisfy the size limit.

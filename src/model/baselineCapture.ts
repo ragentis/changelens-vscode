@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { isInside, normalizeKey } from "../core/paths";
+import { textDigest } from "../core/text";
 import type { BaselineStore } from "../storage";
 import type { WorkspaceFilter } from "../tracking/filter";
 import { documentText, openDocument } from "./documents";
@@ -109,7 +110,7 @@ export class BaselineCapture {
       this.store.markClean(key, state.disk.stat);
     }
 
-    this.tracked.setDisk(key, { text: state.text, hadBom: state.disk?.hadBom });
+    this.tracked.setDisk(key, { digest: textDigest(state.text), hadBom: state.disk?.hadBom });
     if (buffer !== undefined) {
       this.tracked.setCurrent(key, buffer);
     }

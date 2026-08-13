@@ -1,4 +1,15 @@
+import * as crypto from "node:crypto";
+
 export const BOM = "\uFEFF";
+
+/**
+ * Identifies text without retaining it. The model compares the last disk reading of every tracked
+ * file against the next one, and holding the whole workspace's content to do it would cost more
+ * memory than the baselines themselves. Truncated like the blob hash, for the same reason.
+ */
+export function textDigest(text: string): string {
+  return crypto.createHash("sha256").update(text, "utf8").digest("hex").slice(0, 32);
+}
 
 export function stripBom(text: string): string {
   return text.startsWith(BOM) ? text.slice(1) : text;

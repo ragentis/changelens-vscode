@@ -1,8 +1,11 @@
 import type { PendingFile } from "./pendingFile";
 
-/** Last disk content and BOM; editor buffers do not expose the current file's BOM. */
+/**
+ * Identity of the last disk content, and its BOM; editor buffers do not expose the current file's
+ * BOM. Only equality is ever asked of the content, so a digest stands in for it.
+ */
 export interface DiskText {
-  text: string;
+  digest: string;
   hadBom: boolean | undefined;
 }
 

@@ -22,11 +22,24 @@ function errorText(error: unknown): string {
   return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
+/**
+ * What the window is doing, which the welcome view renders and the command palette gates on. Only
+ * `ready` has a model behind it; the other three mean no command was registered or none can act.
+ */
+type Status = "noFolder" | "capturing" | "ready" | "failed";
+
+function setStatus(status: Status): void {
+  void vscode.commands.executeCommand("setContext", "changelens.status", status);
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   if (!vscode.workspace.workspaceFolders?.length || !context.storageUri) {
+    // Nothing here will ever be captured, so the view has to say so instead of waiting forever.
+    setStatus("noFolder");
     return;
   }
 
+  setStatus("capturing");
   const output = vscode.window.createOutputChannel("ChangeLens");
   let lastNotice = 0;
   const report = (message: string, error?: unknown): void => {
@@ -150,10 +163,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push(watcher);
 
-  await model.initialize();
-  void vscode.commands.executeCommand("setContext", "changelens.ready", true);
+  try {
+    await model.initialize();
+  } catch (error) {
+    // The capture already warned and offered the reload this window needs. Rethrowing would only
+    // add VS Code's own activation failure on top of a message the user has already read.
+    setStatus("failed");
+    output.appendLine(`The baseline could not be captured. ${errorText(error)}`);
+    return;
+  }
+
+  setStatus("ready");
   void vscode.commands.executeCommand("setContext", "changelens.hasChanges", model.hasChanges);
   watcher.activate();
+
+  // Nothing was listening while the baseline was being built, so a write that landed after its
+  // file was read raised no event anyone received. Stats recorded moments ago can still match such
+  // a write, so this pass compares content and pays a second read of the workspace to do it.
+  void model.reconcile(false).catch((error: unknown) => {
+    report("The first scan for external changes did not finish.", error);
+  });
 }
 
 /** A branch switch rewrites files wholesale; those writes are not agent changes. */

@@ -190,9 +190,23 @@ export class IgnoreMatcher {
 
   /** `relativePath` must be workspace-relative and use forward slashes. */
   ignores(relativePath: string): boolean {
+    // Git never descends into an excluded directory, so no later rule can re-include something
+    // beneath one. The trailing slash asks each rule about the directory rather than a file of
+    // the same name, which is what distinguishes `!build/keep.txt` from `!build/`.
+    const segments = relativePath.split("/");
+    for (let depth = 1; depth < segments.length; depth++) {
+      if (this.matches(`${segments.slice(0, depth).join("/")}/`)) {
+        return true;
+      }
+    }
+    return this.matches(relativePath);
+  }
+
+  /** The plain last-match-wins pass over one candidate path. */
+  private matches(candidate: string): boolean {
     let ignored = false;
     for (const rule of this.rules) {
-      if (rule.regex.test(relativePath)) {
+      if (rule.regex.test(candidate)) {
         ignored = !rule.negated;
       }
     }

@@ -39,13 +39,18 @@ export const DEFAULT_EXCLUDE: readonly string[] = [
   "**/package-lock.json",
 ];
 
+/** A limit of zero or less would silently stop the extension from tracking anything. */
+function positive(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 export function readConfig(): ChangeLensConfig {
   const config = vscode.workspace.getConfiguration("changelens");
   return {
     respectGitignore: config.get("respectGitignore", true),
     exclude: config.get<string[]>("exclude", [...DEFAULT_EXCLUDE]),
-    maxFileSizeKb: config.get("maxFileSizeKb", 512),
-    maxTrackedFiles: config.get("maxTrackedFiles", 20000),
+    maxFileSizeKb: positive(config.get("maxFileSizeKb", 512), 512),
+    maxTrackedFiles: positive(config.get("maxTrackedFiles", 20000), 20000),
     showCodeLensInEditor: config.get("showCodeLensInEditor", true),
     decorateEditor: config.get("decorateEditor", true),
     viewMode: normalizeViewMode(config.get<ViewMode>("defaultViewMode", "tree")),

@@ -2,7 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { dirPrefix, normalizeKey } from "../core/paths";
 import { rebaseBaseline } from "../core/rebase";
-import { detectEol, splitLines } from "../core/text";
+import { detectEol, splitLines, textDigest } from "../core/text";
 import type { BaselineStore } from "../storage";
 import type { WorkspaceFilter } from "../tracking/filter";
 import type { BaselineCapture } from "./baselineCapture";
@@ -55,13 +55,20 @@ export class FileEvents {
 
     return this.work.enqueue(key, async () => {
       const state = await this.reader.read(uri, true);
+      // A folder cannot be read, and VS Code sends no event for what it brought with it.
+      if (state.kind === "unreadable" && (await this.isDirectory(uri))) {
+        await this.settleFolder(uri);
+        return;
+      }
+
       if (state.kind === "text") {
+        const digest = textDigest(state.text);
         const seen = this.tracked.disk(key);
-        // The BOM counts: comparing text alone could leave a stale BOM in the baseline.
-        if (seen && seen.text === state.text && seen.hadBom === state.disk?.hadBom) {
+        // The BOM counts: comparing content alone could leave a stale BOM in the baseline.
+        if (seen && seen.digest === digest && seen.hadBom === state.disk?.hadBom) {
           return;
         }
-        this.tracked.setDisk(key, { text: state.text, hadBom: state.disk?.hadBom });
+        this.tracked.setDisk(key, { digest, hadBom: state.disk?.hadBom });
       }
 
       const doc = openDocument(uri);
@@ -79,14 +86,59 @@ export class FileEvents {
     }
 
     const key = normalizeKey(uri.fsPath);
-    if (!this.store.has(key) && !this.tracked.pending(key)) {
+    if (this.store.has(key) || this.tracked.pending(key)) {
+      return this.work.enqueue(key, async () => {
+        this.tracked.forgetContent(key);
+        await this.deriver.recompute(uri);
+      });
+    }
+
+    // A deleted folder has no record of its own and VS Code may send no event for the files it
+    // took with it, so its tracked descendants have to be settled from here.
+    return this.settleDeletedFolder(uri);
+  }
+
+  /**
+   * Re-derives what a vanished path contained. The scope check keeps an excluded tree, whose
+   * contents cannot be tracked anyway, from walking every baseline on every delete event.
+   */
+  private settleDeletedFolder(uri: vscode.Uri): Promise<void> {
+    if (!this.filter.isTracked(uri)) {
       return Promise.resolve();
     }
 
-    return this.work.enqueue(key, async () => {
-      this.tracked.forgetContent(key);
-      await this.deriver.recompute(uri);
+    const keys = this.keysUnder(uri.fsPath);
+    if (keys.length === 0) {
+      return Promise.resolve();
+    }
+
+    return this.joinedOperation(async () => {
+      for (const key of keys) {
+        const target = this.pathOf(key);
+        if (target === undefined) {
+          continue;
+        }
+
+        await this.work.enqueue(key, async () => {
+          this.tracked.forgetContent(key);
+          await this.deriver.recompute(vscode.Uri.file(target), true);
+        });
+      }
+      this.context.fire();
     });
+  }
+
+  /** Reviews everything a folder brought with it; an external create is not an editor operation. */
+  private async settleFolder(uri: vscode.Uri): Promise<void> {
+    for (const target of await this.expand(uri)) {
+      await this.queuedRecompute(target);
+    }
+    this.context.fire();
+  }
+
+  private async isDirectory(uri: vscode.Uri): Promise<boolean> {
+    const stated = await this.reader.stat(uri);
+    return stated.kind === "stat" && stated.isDirectory;
   }
 
   // ── changes the user makes in the editor ─────────────────────────────────
@@ -116,7 +168,7 @@ export class FileEvents {
       return false;
     }
 
-    if (prev !== undefined && next !== this.tracked.disk(key)?.text) {
+    if (prev !== undefined && textDigest(next) !== this.tracked.disk(key)?.digest) {
       await this.rebaseOverBufferEdit(key, uri, prev, next);
     }
 
@@ -171,7 +223,10 @@ export class FileEvents {
     return this.work.enqueue(key, async () => {
       const folded = await this.assimilateBuffer(key, doc.uri, saved);
       // VS Code preserves the existing BOM on save, so the last disk reading remains valid.
-      this.tracked.setDisk(key, { text: saved, hadBom: this.tracked.disk(key)?.hadBom });
+      this.tracked.setDisk(key, {
+        digest: textDigest(saved),
+        hadBom: this.tracked.disk(key)?.hadBom,
+      });
       if (folded) {
         await this.deriver.recompute(doc.uri);
       }
@@ -189,7 +244,7 @@ export class FileEvents {
 
     this.tracked.setCurrentIfUnknown(key, text);
     if (!doc.isDirty && this.tracked.disk(key) === undefined) {
-      this.tracked.setDisk(key, { text, hadBom: undefined });
+      this.tracked.setDisk(key, { digest: textDigest(text), hadBom: undefined });
     }
   }
 
