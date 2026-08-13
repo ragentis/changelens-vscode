@@ -75,7 +75,10 @@ export class ReviewActions {
 
   async acceptHunk(key: string, signature: string): Promise<boolean> {
     const found = this.resolveHunk(key, signature);
-    if (!found) {
+    // A completely deleted file has no per-hunk accept: splicing its sole hunk would store an empty
+    // baseline while the deletion stayed pending, so a later revert would recreate an empty file.
+    // Accept the whole file instead.
+    if (!found || found.file.opaqueReason || found.file.status === "deleted") {
       return false;
     }
 

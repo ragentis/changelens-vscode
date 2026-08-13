@@ -12,6 +12,7 @@ export interface UnifiedHunk {
 
 export interface UnifiedView {
   lines: string[];
+  /** Positioned by {@link Hunk.index}, so `hunks[i]` always describes the caller's `hunks[i]`. */
   hunks: UnifiedHunk[];
 }
 
@@ -36,14 +37,15 @@ export function buildUnified(current: string[], hunks: Hunk[]): UnifiedView {
     lines.push(...hunk.baseLines);
     const addedStart = lines.length;
     lines.push(...hunk.currLines);
-    mapped.push({
+    // Layout order follows `currStart`; the slot follows the caller's array, so the two can differ.
+    mapped[hunk.index] = {
       index: hunk.index,
       start: removedStart,
       removedStart,
       removedCount: hunk.baseLines.length,
       addedStart,
       addedCount: hunk.currLines.length,
-    });
+    };
     cursor = hunk.currStart + hunk.currLines.length;
   }
 
