@@ -34,10 +34,24 @@ export class ModelContext implements vscode.Disposable {
 
   readonly onDidChange = this.emitter.event;
 
+  /**
+   * The live answer to "what did the user toggle", with {@link toggleState} only persisting it.
+   * Holding it here keeps a toggle authoritative while a config reload is mid-flight, and keeps
+   * one working when no storage was supplied at all.
+   */
+  private viewModeOverride: ViewMode | undefined;
+  private reviewModeOverride: ReviewMode | undefined;
+
   constructor(
     readonly store: BaselineStore,
     private readonly toggleState?: vscode.Memento,
   ) {
+    const viewMode = toggleState?.get<string>(VIEW_MODE_STATE_KEY);
+    const reviewMode = toggleState?.get<string>(REVIEW_MODE_STATE_KEY);
+    this.viewModeOverride = viewMode === undefined ? undefined : normalizeViewMode(viewMode);
+    this.reviewModeOverride =
+      reviewMode === undefined ? undefined : normalizeReviewMode(reviewMode);
+
     this.config = this.read();
     this.filter = new WorkspaceFilter(this.config);
     this.reader = new FileStateReader(store, this.filter);
@@ -46,12 +60,14 @@ export class ModelContext implements vscode.Disposable {
   /** A stored toggle wins over its configured default, the way the SCM view resolves its mode. */
   private read(): ChangeLensConfig {
     const config = readConfig();
-    const viewMode = this.toggleState?.get<string>(VIEW_MODE_STATE_KEY);
-    const reviewMode = this.toggleState?.get<string>(REVIEW_MODE_STATE_KEY);
+    return { ...config, ...this.toggles(config) };
+  }
+
+  /** The two values a toggle owns, resolved against the defaults they fall back to. */
+  private toggles(defaults: ChangeLensConfig): Pick<ChangeLensConfig, "viewMode" | "reviewMode"> {
     return {
-      ...config,
-      viewMode: viewMode === undefined ? config.viewMode : normalizeViewMode(viewMode),
-      reviewMode: reviewMode === undefined ? config.reviewMode : normalizeReviewMode(reviewMode),
+      viewMode: this.viewModeOverride ?? defaults.viewMode,
+      reviewMode: this.reviewModeOverride ?? defaults.reviewMode,
     };
   }
 
@@ -61,11 +77,13 @@ export class ModelContext implements vscode.Disposable {
    */
   async setViewMode(mode: ViewMode): Promise<void> {
     await this.toggleState?.update(VIEW_MODE_STATE_KEY, mode);
+    this.viewModeOverride = mode;
     this.config = { ...this.config, viewMode: mode };
   }
 
   async setReviewMode(mode: ReviewMode): Promise<void> {
     await this.toggleState?.update(REVIEW_MODE_STATE_KEY, mode);
+    this.reviewModeOverride = mode;
     this.config = { ...this.config, reviewMode: mode };
   }
 
@@ -80,7 +98,10 @@ export class ModelContext implements vscode.Disposable {
       (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
     );
     await this.filter.rebuild(config);
-    this.config = config;
+    // A toggle can land during the rebuild, and being stored state rather than a setting it raises
+    // no configuration event that would bring us back here to pick it up. Everything else stays
+    // paired with the snapshot the filter was just rebuilt against.
+    this.config = { ...config, ...this.toggles(config) };
   }
 
   /**

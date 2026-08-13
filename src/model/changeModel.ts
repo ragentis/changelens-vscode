@@ -19,6 +19,8 @@ export class ChangeModel implements vscode.Disposable {
   private readonly review: ReviewActions;
   /** Tail of the lifecycle chain, which is what keeps whole-model operations from overlapping. */
   private lifecycle: Promise<void> = Promise.resolve();
+  /** Tail of the toggle chain, kept separate so a mode never queues behind baseline work. */
+  private modeChange: Promise<void> = Promise.resolve();
 
   readonly onDidChange: vscode.Event<void>;
 
@@ -138,18 +140,41 @@ export class ChangeModel implements vscode.Disposable {
     void this.context.store.collectGarbage();
   }
 
-  /** Grouping only, so it skips the lifecycle chain and never waits behind a capture. */
-  async setViewMode(mode: ViewMode): Promise<void> {
-    if (this.config.viewMode === mode) {
-      return;
-    }
-    await this.context.setViewMode(mode);
-    this.fire();
+  /**
+   * Serializes the mode toggles on a chain of their own: they carry no baseline work, so they must
+   * not wait behind a capture, but each one still has to read the mode the previous one published.
+   */
+  private queueMode<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.modeChange.then(work);
+    // As with the lifecycle chain, a rejected tail would strand every toggle queued behind it.
+    this.modeChange = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    // Joined so a window closing on a toggle drains its write instead of dropping the choice.
+    return this.context.work.join(run);
   }
 
-  /** Decides how the next file is opened, so nothing on screen has to be redrawn. */
-  setReviewMode(mode: ReviewMode): Promise<void> {
-    return this.context.setReviewMode(mode);
+  setViewMode(mode: ViewMode): Promise<void> {
+    return this.queueMode(async () => {
+      if (this.config.viewMode === mode) {
+        return;
+      }
+      await this.context.setViewMode(mode);
+      this.fire();
+    });
+  }
+
+  /**
+   * Flips inside the chain and reports what it landed on, so two rapid toggles cannot both read
+   * the same mode and pick the same successor. Nothing on screen depends on it, so it never fires.
+   */
+  toggleReviewMode(): Promise<ReviewMode> {
+    return this.queueMode(async () => {
+      const next: ReviewMode = this.config.reviewMode === "unified" ? "diffEditor" : "unified";
+      await this.context.setReviewMode(next);
+      return next;
+    });
   }
 
   reloadConfig(): Promise<void> {
