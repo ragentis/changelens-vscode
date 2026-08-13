@@ -55,7 +55,9 @@ export function diffPending(
 ): PendingFile | undefined {
   const currentLines = splitLines(currentText);
   const hunks = computeHunks(splitLines(baselineText), currentLines);
-  if (hunks.length === 0) {
+  // An empty file yields no hunk against the other empty side, but creating or deleting it is
+  // still a change the user has to accept or revert.
+  if (hunks.length === 0 && status === "modified") {
     return undefined;
   }
 
