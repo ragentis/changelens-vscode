@@ -6,12 +6,13 @@ import { ChangeModel } from "./model";
 import { BaselineStore } from "./storage";
 import { handleGitHeadChanged } from "./tracking/branchChange";
 import { WorkspaceWatcher } from "./tracking/watcher";
+import { activeFileContext } from "./ui/activeFileContext";
 import { ChangesTreeProvider } from "./ui/changesTree";
 import { ChangeDecorationProvider } from "./ui/decorationProvider";
 import { EditorHighlighter } from "./ui/editorDecorations";
 import { HunkCodeLensProvider } from "./ui/hunkCodeLens";
 import { ReviewContentProvider } from "./ui/reviewContentProvider";
-import { BASE_SCHEME, CURRENT_SCHEME, fileKeyOf, isReviewUri, REVIEW_SCHEME } from "./ui/schemes";
+import { BASE_SCHEME, CURRENT_SCHEME, fileKeyOf, REVIEW_SCHEME } from "./ui/schemes";
 import { StatusBar } from "./ui/statusBar";
 
 const ERROR_NOTICE_INTERVAL_MS = 60_000;
@@ -75,21 +76,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const statusBar = new StatusBar(model);
 
   const updateActiveFileContext = () => {
-    const active = vscode.window.activeTextEditor?.document.uri;
-    const reviewed =
-      active && (active.scheme === "file" || isReviewUri(active))
-        ? model.get(fileKeyOf(active))
-        : undefined;
-    // Deletions and contentless files are pending but have no block to accept or revert.
-    const hasHunks =
-      reviewed !== undefined &&
-      !reviewed.opaqueReason &&
-      reviewed.status !== "deleted" &&
-      reviewed.hunks.length > 0;
+    const { hasChanges, hasHunks } = activeFileContext(
+      model,
+      vscode.window.activeTextEditor?.document.uri,
+    );
     void vscode.commands.executeCommand(
       "setContext",
       "changelens.activeFileHasChanges",
-      active?.scheme === "file" && reviewed !== undefined,
+      hasChanges,
     );
     void vscode.commands.executeCommand("setContext", "changelens.activeFileHasHunks", hasHunks);
   };
