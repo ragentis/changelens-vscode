@@ -77,10 +77,13 @@
       }
     },
     {
-      // Unit tests exercise the internals a barrel deliberately hides, which is their job.
+      // Unit tests exercise the internals a barrel deliberately hides, which is their job, and
+      // they step through a scenario in order: running those steps in parallel would test
+      // something else.
       "files": ["test/**/*.ts"],
       "rules": {
-        "eslint/no-restricted-imports": "off"
+        "eslint/no-restricted-imports": "off",
+        "eslint/no-await-in-loop": "off"
       }
     },
     {
