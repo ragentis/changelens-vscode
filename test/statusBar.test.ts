@@ -67,7 +67,7 @@ test("one pending file reads in the singular and clicking it opens the view", as
   await agentWrote("a.ts", "one\ntwo\n");
 
   expect(item().visible).toBe(true);
-  expect(item().text).toBe("$(git-compare) 1");
+  expect(item().text).toBe("$(diff-multiple) 1");
   expect(item().tooltip).toBe("ChangeLens: 1 file awaiting review");
   expect(item().command).toBe("changelens.changes.focus");
 });
@@ -79,7 +79,7 @@ test("more than one pending file reads in the plural", async () => {
   await agentWrote("a.ts", "one\ntwo\n");
   await agentWrote("b.ts", "two\nthree\n");
 
-  expect(item().text).toBe("$(git-compare) 2");
+  expect(item().text).toBe("$(diff-multiple) 2");
   expect(item().tooltip).toBe("ChangeLens: 2 files awaiting review");
 });
 

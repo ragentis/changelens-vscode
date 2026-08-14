@@ -240,6 +240,7 @@ export class TextEditorDecorationType {
 
 export const ProgressLocation = { SourceControl: 1, Window: 10, Notification: 15 } as const;
 export const FileType = { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 } as const;
+export const FileChangeType = { Changed: 1, Created: 2, Deleted: 3 } as const;
 export const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 } as const;
 
 export class FileSystemError extends Error {
@@ -257,6 +258,10 @@ export class FileSystemError extends Error {
 
   static NoPermissions(): FileSystemError {
     return new FileSystemError("NoPermissions");
+  }
+
+  static FileNotADirectory(): FileSystemError {
+    return new FileSystemError("FileNotADirectory");
   }
 }
 
@@ -406,6 +411,12 @@ export interface FileRename {
   newUri: Uri;
 }
 
+/** A registered virtual file system, kept with its options so a test can assert them. */
+export interface FileSystemProviderRegistration {
+  provider: { readFile: (uri: api.Uri) => Uint8Array | Thenable<Uint8Array> };
+  options: { isReadonly?: boolean; isCaseSensitive?: boolean } | undefined;
+}
+
 /** The workspace events the watcher subscribes to, each raised by a test through `state.events`. */
 function workspaceEvents() {
   return {
@@ -428,7 +439,7 @@ export const state = {
   /** Workspace-scope settings, which outrank the user's own. */
   workspaceConfiguration: new Map<string, unknown>(),
   documents: [] as TextDocument[],
-  contentProviders: new Map<string, { provideTextDocumentContent: (uri: api.Uri) => unknown }>(),
+  fileSystemProviders: new Map<string, FileSystemProviderRegistration>(),
   commands: new Map<string, (...args: never[]) => unknown>(),
   /** Commands invoked through `executeCommand`, including the built-in ones. */
   executed: [] as { command: string; args: unknown[] }[],
@@ -457,7 +468,7 @@ export function reset(): void {
   state.configuration = new Map();
   state.workspaceConfiguration = new Map();
   state.documents = [];
-  state.contentProviders = new Map();
+  state.fileSystemProviders = new Map();
   state.commands = new Map();
   state.executed = [];
   state.shown = [];
@@ -792,12 +803,13 @@ export const workspace = {
     return state.events.foldersChanged.event(listener);
   },
 
-  registerTextDocumentContentProvider(
+  registerFileSystemProvider(
     scheme: string,
-    provider: { provideTextDocumentContent: (uri: api.Uri) => unknown },
+    provider: FileSystemProviderRegistration["provider"],
+    options?: FileSystemProviderRegistration["options"],
   ): { dispose: () => void } {
-    state.contentProviders.set(scheme, provider);
-    return { dispose: () => void state.contentProviders.delete(scheme) };
+    state.fileSystemProviders.set(scheme, { provider, options });
+    return { dispose: () => void state.fileSystemProviders.delete(scheme) };
   },
 
   getWorkspaceFolder(uri: Uri): WorkspaceFolder | undefined {
@@ -823,9 +835,9 @@ export const workspace = {
     if (open) {
       return open;
     }
-    const provider = state.contentProviders.get(uri.scheme);
-    const text = provider
-      ? String(await provider.provideTextDocumentContent(asUri(uri)))
+    const registered = state.fileSystemProviders.get(uri.scheme);
+    const text = registered
+      ? Buffer.from(await registered.provider.readFile(asUri(uri))).toString("utf8")
       : Buffer.from(await workspace.fs.readFile(uri))
           .toString("utf8")
           .replace(/^﻿/, "");

@@ -419,6 +419,22 @@
         }
       }
     },
+    "resourceLabelFormatters": [
+      {
+        "scheme": "changelens-review",
+        "formatting": {
+          "label": "${path} (ChangeLens)",
+          "separator": "/"
+        }
+      },
+      {
+        "scheme": "changelens-base",
+        "formatting": {
+          "label": "${path} (ChangeLens)",
+          "separator": "/"
+        }
+      }
+    ],
     "colors": [
       {
         "id": "changelens.addedResourceForeground",

@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { registerCommands } from "../src/commands";
 import { normalizeKey } from "../src/core/paths";
 import { ChangeModel } from "../src/model/changeModel";
@@ -9,7 +9,7 @@ import { BaselineStore } from "../src/storage/baselineStore";
 import { activeFileContext } from "../src/ui/activeFileContext";
 import { ChangesTreeProvider } from "../src/ui/changesTree";
 import { HunkCodeLensProvider } from "../src/ui/hunkCodeLens";
-import { ReviewContentProvider } from "../src/ui/reviewContentProvider";
+import { ReviewFileSystemProvider } from "../src/ui/reviewFileSystemProvider";
 import { BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME } from "../src/ui/schemes";
 import { must } from "./helpers/assert";
 import * as editor from "./helpers/vscode";
@@ -31,6 +31,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   model.dispose();
   await store.flush();
   await fs.rm(root, { recursive: true, force: true });
@@ -62,6 +63,29 @@ async function agentDeleted(name: string): Promise<void> {
 
 function lastMessage(): string {
   return editor.state.shown.at(-1)?.message ?? "";
+}
+
+/** Mounts the review file system on the given schemes, the way activation does. */
+function serveReviews(...schemes: string[]): ReviewFileSystemProvider {
+  const provider = new ReviewFileSystemProvider(model);
+  for (const scheme of schemes) {
+    editor.workspace.registerFileSystemProvider(scheme, provider, { isReadonly: true });
+  }
+  return provider;
+}
+
+function reviewUri(scheme: string, name: string): editor.Uri {
+  return editor.Uri.file(fsPath(name)).with({ scheme });
+}
+
+async function served(
+  provider: ReviewFileSystemProvider,
+  scheme: string,
+  name: string,
+): Promise<string> {
+  return Buffer.from(await provider.readFile(editor.asUri(reviewUri(scheme, name)))).toString(
+    "utf8",
+  );
 }
 
 // #region the changes tree
@@ -247,8 +271,7 @@ test("a deleted file still reverts to its original content after a refused block
 test("opening a deleted file shows its baseline rather than failing on the missing path", async () => {
   await write("a.ts", "one\ntwo\n");
   await model.initialize();
-  const provider = new ReviewContentProvider(model);
-  editor.state.contentProviders.set(BASE_SCHEME, provider);
+  const provider = serveReviews(BASE_SCHEME);
   await agentDeleted("a.ts");
 
   await editor.run("changelens.openFile", key("a.ts"));
@@ -277,11 +300,8 @@ test("a contentless deletion says its previous version cannot be shown", async (
 // #region the block at the cursor
 
 async function openReview(name: string): Promise<editor.TextDocument> {
-  const provider = new ReviewContentProvider(model);
-  editor.state.contentProviders.set(REVIEW_SCHEME, provider);
-  return await editor.workspace.openTextDocument(
-    editor.Uri.file(fsPath(name)).with({ scheme: REVIEW_SCHEME }),
-  );
+  serveReviews(REVIEW_SCHEME);
+  return await editor.workspace.openTextDocument(reviewUri(REVIEW_SCHEME, name));
 }
 
 test("a cursor outside every block accepts nothing and says so", async () => {
@@ -322,11 +342,8 @@ test("the baseline side of a diff resolves blocks by baseline lines, not current
   // The insertion above shifts the current side, so the two coordinates disagree here.
   expect([second.baseStart, second.currStart]).toEqual([3, 5]);
 
-  const provider = new ReviewContentProvider(model);
-  editor.state.contentProviders.set(BASE_SCHEME, provider);
-  const base = await editor.workspace.openTextDocument(
-    editor.Uri.file(fsPath("a.ts")).with({ scheme: BASE_SCHEME }),
-  );
+  const provider = serveReviews(BASE_SCHEME);
+  const base = await editor.workspace.openTextDocument(reviewUri(BASE_SCHEME, "a.ts"));
   editor.setActiveEditor(base, second.baseStart);
   await editor.run("changelens.acceptHunkAtCursor");
 
@@ -429,17 +446,71 @@ test("the review provider serves a side per scheme", async () => {
   await model.initialize();
   await agentWrote("a.ts", "one\ntwo\n");
 
-  const provider = new ReviewContentProvider(model);
-  const serve = (scheme: string) =>
-    provider.provideTextDocumentContent(
-      editor.asUri(editor.Uri.file(fsPath("a.ts")).with({ scheme })),
-    );
+  const provider = serveReviews(BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME);
 
   // Both sides of the built-in diff come from here, so serving the same text to both would render
   // an empty diff for a file that really did change.
-  expect(await serve(BASE_SCHEME)).toBe("one\n");
-  expect(await serve(CURRENT_SCHEME)).toBe("one\ntwo\n");
-  expect(await serve(REVIEW_SCHEME)).toContain("two");
+  expect(await served(provider, BASE_SCHEME, "a.ts")).toBe("one\n");
+  expect(await served(provider, CURRENT_SCHEME, "a.ts")).toBe("one\ntwo\n");
+  expect(await served(provider, REVIEW_SCHEME, "a.ts")).toContain("two");
+  provider.dispose();
+});
+
+test("the review file system refuses every way of writing to it", () => {
+  const provider = serveReviews(REVIEW_SCHEME);
+
+  // Read-only is declared at registration, but a caller reaching the provider directly must still
+  // be turned away rather than silently doing nothing.
+  expect(() => provider.writeFile()).toThrow("NoPermissions");
+  expect(() => provider.delete()).toThrow("NoPermissions");
+  expect(() => provider.rename()).toThrow("NoPermissions");
+  expect(() => provider.createDirectory()).toThrow("NoPermissions");
+  provider.dispose();
+});
+
+test("listing a review as a directory is refused as a wrong shape, not as a permission", () => {
+  const provider = serveReviews(REVIEW_SCHEME);
+
+  // Every review URI names a file. Reporting this as `NoPermissions` would suggest a read-only
+  // directory that a caller could usefully retry against.
+  expect(() => provider.readDirectory(editor.asUri(reviewUri(REVIEW_SCHEME, "a.ts")))).toThrow(
+    "FileNotADirectory",
+  );
+  provider.dispose();
+});
+
+test("a review that cannot be resolved opens empty instead of failing the editor", async () => {
+  const provider = serveReviews(REVIEW_SCHEME);
+
+  // `stat` runs before every open, so throwing here would surface as an error notification for a
+  // file the model has never heard of.
+  const uri = editor.asUri(reviewUri(REVIEW_SCHEME, "gone.ts"));
+  expect((await provider.stat(uri)).size).toBe(0);
+  expect(await served(provider, REVIEW_SCHEME, "gone.ts")).toBe("");
+  provider.dispose();
+});
+
+test("each refresh moves the stat, so no reload is skipped for landing in the same millisecond", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  const provider = serveReviews(REVIEW_SCHEME);
+  const uri = editor.asUri(reviewUri(REVIEW_SCHEME, "a.ts"));
+  await editor.workspace.openTextDocument(reviewUri(REVIEW_SCHEME, "a.ts"));
+
+  // Frozen, so only the provider's own guard can move the stat. The editor reloads on a moved stat
+  // alone, and a plain clock reading repeats for two changes inside one millisecond.
+  vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+
+  const first = (await provider.stat(uri)).mtime;
+  await agentWrote("a.ts", "one\ntwo\nthree\n");
+  const second = (await provider.stat(uri)).mtime;
+  await agentWrote("a.ts", "one\ntwo\nthree\nfour\n");
+  const third = (await provider.stat(uri)).mtime;
+
+  expect(second).toBeGreaterThan(first);
+  expect(third).toBeGreaterThan(second);
   provider.dispose();
 });
 
@@ -448,19 +519,20 @@ test("an open review refreshes after its file leaves the pending list", async ()
   await model.initialize();
   await agentWrote("a.ts", "one\ntwo\n");
 
-  const provider = new ReviewContentProvider(model);
-  editor.state.contentProviders.set(REVIEW_SCHEME, provider);
-  const reviewUri = editor.Uri.file(fsPath("a.ts")).with({ scheme: REVIEW_SCHEME });
-  await editor.workspace.openTextDocument(reviewUri);
+  const provider = serveReviews(REVIEW_SCHEME);
+  const uri = reviewUri(REVIEW_SCHEME, "a.ts");
+  await editor.workspace.openTextDocument(uri);
 
   const refreshed: string[] = [];
-  provider.onDidChange((uri) => refreshed.push(uri.toString()));
+  provider.onDidChangeFile((events) =>
+    refreshed.push(...events.map((event) => event.uri.toString())),
+  );
 
   await model.acceptFile(key("a.ts"));
 
   expect(model.files).toEqual([]);
-  expect(refreshed).toContain(reviewUri.toString());
-  expect(await provider.provideTextDocumentContent(editor.asUri(reviewUri))).toBe("one\ntwo\n");
+  expect(refreshed).toContain(uri.toString());
+  expect(await served(provider, REVIEW_SCHEME, "a.ts")).toBe("one\ntwo\n");
   provider.dispose();
 });
 
@@ -469,9 +541,11 @@ test("a review of an unopened file is not announced on every change", async () =
   await write("b.ts", "one\n");
   await model.initialize();
 
-  const provider = new ReviewContentProvider(model);
+  const provider = serveReviews(REVIEW_SCHEME);
   const refreshed: string[] = [];
-  provider.onDidChange((uri) => refreshed.push(uri.toString()));
+  provider.onDidChangeFile((events) =>
+    refreshed.push(...events.map((event) => event.uri.toString())),
+  );
 
   await agentWrote("a.ts", "one\ntwo\n");
   await agentWrote("b.ts", "one\ntwo\n");
@@ -486,10 +560,8 @@ test("a review reverted through an unsaved buffer shows the buffer, not the stal
   await model.initialize();
   await agentWrote("a.ts", "one\ntwo\n");
 
-  const provider = new ReviewContentProvider(model);
-  editor.state.contentProviders.set(REVIEW_SCHEME, provider);
-  const reviewUri = editor.Uri.file(fsPath("a.ts")).with({ scheme: REVIEW_SCHEME });
-  await editor.workspace.openTextDocument(reviewUri);
+  const provider = serveReviews(REVIEW_SCHEME);
+  await editor.workspace.openTextDocument(reviewUri(REVIEW_SCHEME, "a.ts"));
   const buffer = editor.openDocument(fsPath("a.ts"), "one\ntwo\n");
 
   expect(await model.revertFile(key("a.ts"))).toBe(true);
@@ -498,7 +570,7 @@ test("a review reverted through an unsaved buffer shows the buffer, not the stal
   expect(buffer.getText()).toBe("one\n");
   expect(await fs.readFile(fsPath("a.ts"), "utf8")).toBe("one\ntwo\n");
   expect(model.files).toEqual([]);
-  expect(await provider.provideTextDocumentContent(editor.asUri(reviewUri))).toBe("one\n");
+  expect(await served(provider, REVIEW_SCHEME, "a.ts")).toBe("one\n");
   provider.dispose();
 });
 

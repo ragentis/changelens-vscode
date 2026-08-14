@@ -107,6 +107,22 @@ test("a successful activation ends ready, with the commands in place", async () 
   expect(editor.state.commands.has("changelens.acceptFile")).toBe(true);
 });
 
+test("every review scheme is mounted read-only", async () => {
+  await write("a.ts", "one\n");
+
+  await activate(context);
+
+  // Read-only is not decoration. Without it VS Code lets the review be typed into and offers
+  // Save As on Ctrl+S, because it decides writability from the provider registered for the scheme.
+  for (const scheme of ["changelens-base", "changelens-current", "changelens-review"]) {
+    const registered = must(
+      editor.state.fileSystemProviders.get(scheme),
+      `the ${scheme} file system`,
+    );
+    expect(registered.options?.isReadonly).toBe(true);
+  }
+});
+
 test("an activation that cannot capture reports failed instead of throwing", async () => {
   await write("a.ts", "one\n");
   // A file where the blob directory has to go, so no baseline content can be stored at all.

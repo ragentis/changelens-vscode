@@ -11,8 +11,8 @@ import { ChangesTreeProvider } from "./ui/changesTree";
 import { ChangeDecorationProvider } from "./ui/decorationProvider";
 import { EditorHighlighter } from "./ui/editorDecorations";
 import { HunkCodeLensProvider } from "./ui/hunkCodeLens";
-import { ReviewContentProvider } from "./ui/reviewContentProvider";
-import { BASE_SCHEME, CURRENT_SCHEME, fileKeyOf, REVIEW_SCHEME } from "./ui/schemes";
+import { ReviewFileSystemProvider } from "./ui/reviewFileSystemProvider";
+import { CURRENT_SCHEME, fileKeyOf, REVIEW_SCHEME, REVIEW_SCHEMES } from "./ui/schemes";
 import { StatusBar } from "./ui/statusBar";
 
 const ERROR_NOTICE_INTERVAL_MS = 60_000;
@@ -69,7 +69,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(store, model, output);
 
   const tree = new ChangesTreeProvider(model);
-  const contentProvider = new ReviewContentProvider(model);
+  const reviewFiles = new ReviewFileSystemProvider(model);
   const decorations = new ChangeDecorationProvider(model);
   const codeLens = new HunkCodeLensProvider(model);
   const highlighter = new EditorHighlighter(model);
@@ -124,16 +124,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     tree,
-    contentProvider,
+    reviewFiles,
     decorations,
     codeLens,
     highlighter,
     statusBar,
     treeView,
     treeView.onDidChangeVisibility(() => revealActiveFile()),
-    vscode.workspace.registerTextDocumentContentProvider(BASE_SCHEME, contentProvider),
-    vscode.workspace.registerTextDocumentContentProvider(CURRENT_SCHEME, contentProvider),
-    vscode.workspace.registerTextDocumentContentProvider(REVIEW_SCHEME, contentProvider),
+    // Case sensitivity follows `normalizeKey`, so the editor and the model agree on which paths
+    // name the same review. Read-only is what keeps the document from being typed into.
+    ...REVIEW_SCHEMES.map((scheme) =>
+      vscode.workspace.registerFileSystemProvider(scheme, reviewFiles, {
+        isReadonly: true,
+        isCaseSensitive: process.platform !== "win32",
+      }),
+    ),
     vscode.window.registerFileDecorationProvider(decorations),
     vscode.languages.registerCodeLensProvider(
       [{ scheme: CURRENT_SCHEME }, { scheme: REVIEW_SCHEME }, { scheme: "file" }],

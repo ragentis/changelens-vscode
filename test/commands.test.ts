@@ -7,7 +7,7 @@ import { normalizeKey } from "../src/core/paths";
 import { registerCommands, resolveKey } from "../src/commands";
 import { ChangeModel } from "../src/model/changeModel";
 import { BaselineStore } from "../src/storage/baselineStore";
-import { ReviewContentProvider } from "../src/ui/reviewContentProvider";
+import { ReviewFileSystemProvider } from "../src/ui/reviewFileSystemProvider";
 import { REVIEW_SCHEME } from "../src/ui/schemes";
 import { ageBlobs } from "./helpers/blobs";
 import * as editor from "./helpers/vscode";
@@ -437,8 +437,8 @@ test("a change opens in the unified review editor", async () => {
   await write("a.ts", "one\n");
   await model.initialize();
   await agentWrote("a.ts", "one\ntwo\n");
-  const provider = new ReviewContentProvider(model);
-  editor.workspace.registerTextDocumentContentProvider(REVIEW_SCHEME, provider);
+  const provider = new ReviewFileSystemProvider(model);
+  editor.workspace.registerFileSystemProvider(REVIEW_SCHEME, provider, { isReadonly: true });
 
   await editor.run("changelens.openDiff", key("a.ts"));
 
