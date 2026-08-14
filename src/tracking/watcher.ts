@@ -1,16 +1,12 @@
-import { execFile } from "node:child_process";
 import * as path from "node:path";
-import { promisify } from "node:util";
 import * as vscode from "vscode";
 import type { ChangeModel } from "../model";
-
-const execFileAsync = promisify(execFile);
+import { resolveGitHead } from "./gitHead";
 
 const DISK_DEBOUNCE_MS = 150;
 const BUFFER_DEBOUNCE_MS = 400;
 /** Repository changes trigger workspace-wide work, so use a longer debounce than file writes. */
 const REPO_DEBOUNCE_MS = 500;
-const GIT_TIMEOUT_MS = 5_000;
 
 /** Settings that change which files are tracked, and so need more than a filter rebuild. */
 const SCOPE_SETTINGS = [
@@ -18,27 +14,6 @@ const SCOPE_SETTINGS = [
   "changelens.respectGitignore",
   "changelens.maxFileSizeKb",
 ];
-
-/**
- * Asks Git for the governing HEAD because nested roots, worktrees, and submodules may not use
- * `<folder>/.git/HEAD`. Falls back to that simple layout when Git cannot answer.
- */
-async function resolveGitHead(folder: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "--git-path", "HEAD"], {
-      cwd: folder,
-      timeout: GIT_TIMEOUT_MS,
-      windowsHide: true,
-    });
-    const resolved = stdout.trim();
-    if (resolved) {
-      return path.resolve(folder, resolved);
-    }
-  } catch {
-    // Fall back for non-repositories or unavailable Git.
-  }
-  return path.join(folder, ".git", "HEAD");
-}
 
 export interface WorkspaceWatcherOptions {
   onError?: (message: string, error?: unknown) => void;
