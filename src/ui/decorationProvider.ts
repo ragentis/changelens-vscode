@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { ChangeModel, FileStatus } from "../model";
+import { fileKeyOf, isReviewUri } from "./schemes";
 
 /**
  * A square in the status colour, rather than a letter that would read as one of Git's own A/M/D
@@ -29,24 +30,34 @@ export class ChangeDecorationProvider implements vscode.FileDecorationProvider, 
   constructor(private readonly model: ChangeModel) {
     this.subscription = model.onDidChange(() => {
       const next = model.files.map((file) => file.uri);
-      this._onDidChangeFileDecorations.fire([...this.decorated, ...next]);
+      // Reviews are taken from what is open rather than from what is pending, so the tab of a file
+      // that just left the review is repainted instead of keeping its badge.
+      const reviews = vscode.workspace.textDocuments
+        .filter((doc) => isReviewUri(doc.uri))
+        .map((doc) => doc.uri);
+      this._onDidChangeFileDecorations.fire([...this.decorated, ...next, ...reviews]);
       this.decorated = next;
     });
   }
 
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-    if (uri.scheme !== "file") {
+    const onDisk = uri.scheme === "file";
+    if (!onDisk && !isReviewUri(uri)) {
       return undefined;
     }
-    const file = this.model.getByUri(uri);
+    const file = this.model.get(fileKeyOf(uri));
     if (!file) {
       return undefined;
     }
+    // On a review tab the badge is set but never drawn: the editor's own read-only decoration
+    // carries a lock icon, and an icon suppresses every text badge merged with it. The colour is
+    // what shows there, and the merged tooltip names the status.
     return {
       badge: BADGES[file.status],
       color: new vscode.ThemeColor(COLORS[file.status]),
       tooltip: `ChangeLens: ${file.status}`,
-      propagate: true,
+      // Only the explorer has parents to carry a badge; a review URI has no tree above it.
+      propagate: onDisk,
     };
   }
 

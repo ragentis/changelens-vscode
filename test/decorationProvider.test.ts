@@ -103,14 +103,48 @@ test("a file nobody is reviewing is left undecorated", async () => {
   expect(decorationFor("b.ts")).toBeUndefined();
 });
 
-test("a review document is not decorated even though its file is", async () => {
+test("a review document carries the same badge as the file it reviews", async () => {
   await write("a.ts", "one\n");
   await model.initialize();
   await agentWrote("a.ts", "one\ntwo\n");
 
-  // The review carries the same path under its own scheme. Decorating it would badge the review
-  // tab as if it were the working file.
-  expect(decorationFor("a.ts")).toBeDefined();
+  const onDisk = must(decorationFor("a.ts"), "the file's decoration");
+  const review = must(decorationFor("a.ts", REVIEW_SCHEME), "the review's decoration");
+
+  expect(review.badge).toBe(onDisk.badge);
+  expect(review.color).toEqual(onDisk.color);
+  // The tab label already names the review, so the badge is left to say which change it holds.
+  // Propagation is not: a review URI has no parent rows for the badge to climb onto.
+  expect(review.propagate).toBe(false);
+  expect(onDisk.propagate).toBe(true);
+});
+
+test("a review of a file nobody is reviewing is left undecorated", async () => {
+  await write("a.ts", "one\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  expect(decorationFor("b.ts", REVIEW_SCHEME)).toBeUndefined();
+});
+
+test("an open review is repainted along with the file it reviews", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  const reviewUri = editor.Uri.file(fsPath("a.ts")).with({ scheme: REVIEW_SCHEME });
+  await editor.workspace.openTextDocument(reviewUri);
+
+  const seen: string[][] = [];
+  provider.onDidChangeFileDecorations((uris) =>
+    seen.push((uris ?? []).map((uri) => uri.toString())),
+  );
+
+  await model.acceptFile(key("a.ts"));
+
+  // Naming only the file would leave the review tab wearing a badge for a change that is gone.
+  expect(seen.at(-1)).toContain(reviewUri.toString());
   expect(decorationFor("a.ts", REVIEW_SCHEME)).toBeUndefined();
 });
 
