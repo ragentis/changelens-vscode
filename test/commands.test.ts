@@ -434,15 +434,16 @@ test("the cursor command does nothing when the active file has no change", async
 // #region opening a review
 
 test("a change opens in the unified review editor", async () => {
-  await write("a.ts", "one\n");
+  await write("a.ts", "one\ntwo\nthree\n");
   await model.initialize();
-  await agentWrote("a.ts", "one\ntwo\n");
+  await agentWrote("a.ts", "one\ntwo\nTHREE\n");
   const provider = new ReviewFileSystemProvider(model);
   editor.workspace.registerFileSystemProvider(REVIEW_SCHEME, provider, { isReadonly: true });
 
   await editor.run("changelens.openDiff", key("a.ts"));
 
   expect(editor.state.shownDocuments.at(-1)?.scheme).toBe(REVIEW_SCHEME);
+  expect(editor.state.activeTextEditor?.selection.active.line).toBe(2);
   provider.dispose();
 });
 

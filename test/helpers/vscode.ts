@@ -929,11 +929,14 @@ export const window = {
     return show("error", message, rest);
   },
 
-  async showTextDocument(target: Uri | TextDocument): Promise<TextEditor> {
+  async showTextDocument(
+    target: Uri | TextDocument,
+    options?: api.TextDocumentShowOptions,
+  ): Promise<TextEditor> {
     const doc = target instanceof Uri ? await workspace.openTextDocument(target) : target;
     state.shownDocuments.push(doc.uri);
     // Showing a document both activates it and puts it on screen, so the two stay in step.
-    const shown = setActiveEditor(doc);
+    const shown = setActiveEditor(doc, options?.selection?.start.line);
     state.visibleTextEditors = [
       ...state.visibleTextEditors.filter((e) => e.document !== doc),
       ...(shown ? [shown] : []),

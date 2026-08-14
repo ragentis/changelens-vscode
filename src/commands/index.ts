@@ -103,7 +103,18 @@ export function registerCommands(
     }
     if (model.config.reviewMode === "unified") {
       const doc = await vscode.workspace.openTextDocument(toReviewUri(REVIEW_SCHEME, file.uri));
-      await vscode.window.showTextDocument(doc, { preview: true });
+      const firstChange = file.unified?.hunks.reduce(
+        (first, hunk) => Math.min(first, hunk.start),
+        Number.POSITIVE_INFINITY,
+      );
+      const selection =
+        firstChange !== undefined && Number.isFinite(firstChange)
+          ? new vscode.Range(firstChange, 0, firstChange, 0)
+          : undefined;
+      await vscode.window.showTextDocument(
+        doc,
+        selection ? { preview: true, selection } : { preview: true },
+      );
       return;
     }
     const title = `${vscode.workspace.asRelativePath(file.uri)} (ChangeLens)`;
