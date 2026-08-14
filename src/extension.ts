@@ -4,6 +4,7 @@ import { registerCommands } from "./commands";
 import type { ViewMode } from "./config";
 import { ChangeModel } from "./model";
 import { BaselineStore } from "./storage";
+import { handleGitHeadChanged } from "./tracking/branchChange";
 import { WorkspaceWatcher } from "./tracking/watcher";
 import { ChangesTreeProvider } from "./ui/changesTree";
 import { ChangeDecorationProvider } from "./ui/decorationProvider";
@@ -158,7 +159,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerCommands(context, model, store);
   publishViewMode();
 
-  const watcher = new WorkspaceWatcher(model, () => onGitHeadChanged(model), {
+  const watcher = new WorkspaceWatcher(model, () => handleGitHeadChanged(model), {
     onError: report,
   });
   context.subscriptions.push(watcher);
@@ -183,30 +184,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void model.reconcile(false).catch((error: unknown) => {
     report("The first scan for external changes did not finish.", error);
   });
-}
-
-/** A branch switch rewrites files wholesale; those writes are not agent changes. */
-async function onGitHeadChanged(model: ChangeModel): Promise<void> {
-  if (!model.ready) {
-    return;
-  }
-  if (!model.hasChanges) {
-    await model.captureBaseline(false);
-    return;
-  }
-  const answer = await vscode.window.showWarningMessage(
-    "The Git branch changed while ChangeLens has pending changes. Reset the baseline to the current workspace?",
-    {
-      modal: true,
-      detail:
-        "Keeping the baseline will show every file rewritten by the branch switch as a pending change.",
-    },
-    "Reset Baseline",
-    "Keep Pending Changes",
-  );
-  if (answer === "Reset Baseline") {
-    await model.captureBaseline(false);
-  }
 }
 
 /** Debounced index writes would otherwise be lost when a window closes right after an edit. */
