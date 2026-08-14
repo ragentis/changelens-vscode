@@ -68,9 +68,9 @@ function repaints(): string[][] {
 }
 
 test.each([
-  { how: "added", badge: "A" },
-  { how: "modified", badge: "M" },
-  { how: "deleted", badge: "D" },
+  { how: "added", badge: "■" },
+  { how: "modified", badge: "■" },
+  { how: "deleted", badge: "■" },
 ])("a $how file carries the $badge badge and its own colour", async ({ how, badge }) => {
   await write("a.ts", "one\n");
   await model.initialize();

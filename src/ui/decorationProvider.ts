@@ -1,10 +1,15 @@
 import * as vscode from "vscode";
 import type { ChangeModel, FileStatus } from "../model";
 
+/**
+ * A square in the status colour, rather than a letter that would read as one of Git's own A/M/D
+ * marks. Only glyphs the UI font itself carries work here: the badge is drawn at 90% size inside
+ * the label's line box.
+ */
 const BADGES: Record<FileStatus, string> = {
-  added: "A",
-  modified: "M",
-  deleted: "D",
+  added: "■",
+  modified: "■",
+  deleted: "■",
 };
 
 const COLORS: Record<FileStatus, string> = {
