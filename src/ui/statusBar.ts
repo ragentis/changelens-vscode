@@ -17,7 +17,7 @@ export class StatusBar implements vscode.Disposable {
       this.item.hide();
       return;
     }
-    this.item.text = `$(git-compare) ${count}`;
+    this.item.text = `$(diff-multiple) ${count}`;
     this.item.tooltip = `ChangeLens: ${count} file${count === 1 ? "" : "s"} awaiting review`;
     this.item.show();
   }
