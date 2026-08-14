@@ -64,7 +64,9 @@ export class WorkspaceWatcher implements vscode.Disposable {
           () => this.model.handleBufferChange(event.document),
         ),
       ),
-      vscode.workspace.onDidOpenTextDocument((doc) => this.model.handleDocumentOpened(doc)),
+      vscode.workspace.onDidOpenTextDocument((doc) =>
+        this.dispatch("A file open", () => this.model.handleDocumentOpened(doc)),
+      ),
       vscode.workspace.onDidSaveTextDocument((doc) =>
         this.dispatch("A file save", () => this.model.handleSave(doc)),
       ),
@@ -98,7 +100,8 @@ export class WorkspaceWatcher implements vscode.Disposable {
       }),
     );
     for (const doc of vscode.workspace.textDocuments) {
-      this.model.handleDocumentOpened(doc);
+      // One unreadable restored editor must not take activation down with it.
+      this.dispatch("A file open", () => this.model.handleDocumentOpened(doc));
     }
     this.watchRepositories();
   }
