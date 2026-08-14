@@ -1,0 +1,5 @@
+# Preserve LF so Windows `format:check` sees the same tree.
+* text=auto eol=lf
+
+*.png binary
+*.vsix binary
