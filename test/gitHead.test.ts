@@ -14,7 +14,8 @@ import { resolveGitHead } from "../src/tracking/gitHead";
 let root: string;
 
 beforeEach(async () => {
-  root = await fs.mkdtemp(path.join(os.tmpdir(), "changelens-githead-"));
+  // Git canonicalizes temp aliases such as macOS `/var` and Windows 8.3 path segments.
+  root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "changelens-githead-")));
 });
 
 afterEach(async () => {
