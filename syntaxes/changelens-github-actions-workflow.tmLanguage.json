@@ -1,0 +1,9 @@
+{
+  "name": "GitHub Actions Workflow (ChangeLens review)",
+  "scopeName": "source.changelens.github-actions-workflow",
+  "patterns": [
+    {
+      "include": "source.github-actions-workflow"
+    }
+  ]
+}

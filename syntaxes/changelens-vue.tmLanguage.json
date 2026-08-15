@@ -1,0 +1,9 @@
+{
+  "name": "Vue (ChangeLens review)",
+  "scopeName": "text.html.changelens.vue",
+  "patterns": [
+    {
+      "include": "text.html.vue"
+    }
+  ]
+}

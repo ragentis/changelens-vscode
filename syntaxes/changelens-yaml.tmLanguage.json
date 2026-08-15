@@ -1,0 +1,9 @@
+{
+  "name": "YAML (ChangeLens review)",
+  "scopeName": "source.changelens.yaml",
+  "patterns": [
+    {
+      "include": "source.yaml"
+    }
+  ]
+}

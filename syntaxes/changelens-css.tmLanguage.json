@@ -1,0 +1,9 @@
+{
+  "name": "CSS (ChangeLens review)",
+  "scopeName": "source.changelens.css",
+  "patterns": [
+    {
+      "include": "source.css"
+    }
+  ]
+}

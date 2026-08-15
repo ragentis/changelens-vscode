@@ -1,0 +1,9 @@
+{
+  "name": "JSON with Comments (ChangeLens review)",
+  "scopeName": "source.changelens.json.comments",
+  "patterns": [
+    {
+      "include": "source.json.comments"
+    }
+  ]
+}

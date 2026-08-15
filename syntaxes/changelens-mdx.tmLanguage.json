@@ -1,0 +1,9 @@
+{
+  "name": "MDX (ChangeLens review)",
+  "scopeName": "source.changelens.mdx",
+  "patterns": [
+    {
+      "include": "source.mdx"
+    }
+  ]
+}

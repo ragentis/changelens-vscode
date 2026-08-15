@@ -1,0 +1,9 @@
+{
+  "name": "JavaScript JSX (ChangeLens review)",
+  "scopeName": "source.changelens.js.jsx",
+  "patterns": [
+    {
+      "include": "source.js.jsx"
+    }
+  ]
+}

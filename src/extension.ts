@@ -12,6 +12,7 @@ import { ChangeDecorationProvider } from "./ui/decorationProvider";
 import { EditorHighlighter } from "./ui/editorDecorations";
 import { HunkCodeLensProvider } from "./ui/hunkCodeLens";
 import { ReviewFileSystemProvider } from "./ui/reviewFileSystemProvider";
+import { mirrorReviewLanguages } from "./ui/reviewLanguage";
 import { CURRENT_SCHEME, fileKeyOf, REVIEW_SCHEME, REVIEW_SCHEMES } from "./ui/schemes";
 import { StatusBar } from "./ui/statusBar";
 
@@ -139,6 +140,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         isCaseSensitive: process.platform !== "win32",
       }),
     ),
+    mirrorReviewLanguages(),
     vscode.window.registerFileDecorationProvider(decorations),
     vscode.languages.registerCodeLensProvider(
       [{ scheme: CURRENT_SCHEME }, { scheme: REVIEW_SCHEME }, { scheme: "file" }],

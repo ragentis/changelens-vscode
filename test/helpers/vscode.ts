@@ -295,16 +295,37 @@ function lineStarts(text: string): number[] {
   return starts;
 }
 
+/** The extensions the editor's own language detection covers for the mirror languages. */
+const LANGUAGE_IDS = new Map([
+  [".ts", "typescript"],
+  [".tsx", "typescriptreact"],
+  [".js", "javascript"],
+  [".jsx", "javascriptreact"],
+  [".json", "json"],
+  [".jsonc", "jsonc"],
+  [".css", "css"],
+  [".scss", "scss"],
+  [".less", "less"],
+  [".vue", "vue"],
+  [".mdx", "mdx"],
+  [".yaml", "yaml"],
+  [".yml", "yaml"],
+]);
+
 /** A document as the extension sees it: the buffer, not the bytes on disk. */
 export class TextDocument {
   isClosed = false;
   isDirty = false;
   eol: number = EndOfLine.LF;
+  /** Derived from the path, as the editor derives it, until something retags the document. */
+  languageId: string;
 
   constructor(
     readonly uri: Uri,
     private text: string,
-  ) {}
+  ) {
+    this.languageId = LANGUAGE_IDS.get(nodePath.extname(uri.fsPath).toLowerCase()) ?? "plaintext";
+  }
 
   getText(): string {
     return this.text;
@@ -958,6 +979,16 @@ export const window = {
 export const languages = {
   registerCodeLensProvider(_selector: unknown, _provider: unknown): { dispose: () => void } {
     return { dispose: () => undefined };
+  },
+
+  setTextDocumentLanguage(doc: TextDocument, languageId: string): Promise<TextDocument> {
+    if (doc.isClosed) {
+      return Promise.reject(new Error(`Cannot retag a closed document: ${doc.uri.fsPath}`));
+    }
+    doc.languageId = languageId;
+    // The editor retags by reopening the document, so the open event fires again.
+    state.events.documentOpened.fire(doc);
+    return Promise.resolve(doc);
   },
 };
 

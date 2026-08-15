@@ -1,0 +1,9 @@
+{
+  "name": "TypeScript JSX (ChangeLens review)",
+  "scopeName": "source.changelens.tsx",
+  "patterns": [
+    {
+      "include": "source.tsx"
+    }
+  ]
+}

@@ -52,6 +52,178 @@
   },
   "main": "./dist/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "changelens-typescript",
+        "aliases": [
+          "TypeScript (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-typescriptreact",
+        "aliases": [
+          "TypeScript JSX (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-javascript",
+        "aliases": [
+          "JavaScript (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-javascriptreact",
+        "aliases": [
+          "JavaScript JSX (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-json",
+        "aliases": [
+          "JSON (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-jsonc",
+        "aliases": [
+          "JSON with Comments (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-css",
+        "aliases": [
+          "CSS (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-scss",
+        "aliases": [
+          "SCSS (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-less",
+        "aliases": [
+          "Less (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/language-configuration.json"
+      },
+      {
+        "id": "changelens-vue",
+        "aliases": [
+          "Vue (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/markup-language-configuration.json"
+      },
+      {
+        "id": "changelens-mdx",
+        "aliases": [
+          "MDX (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/markup-language-configuration.json"
+      },
+      {
+        "id": "changelens-yaml",
+        "aliases": [
+          "YAML (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/yaml-language-configuration.json"
+      },
+      {
+        "id": "changelens-dockercompose",
+        "aliases": [
+          "Compose (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/yaml-language-configuration.json"
+      },
+      {
+        "id": "changelens-github-actions-workflow",
+        "aliases": [
+          "GitHub Actions Workflow (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/yaml-language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "changelens-typescript",
+        "scopeName": "source.changelens.ts",
+        "path": "./syntaxes/changelens-typescript.tmLanguage.json"
+      },
+      {
+        "language": "changelens-typescriptreact",
+        "scopeName": "source.changelens.tsx",
+        "path": "./syntaxes/changelens-typescriptreact.tmLanguage.json"
+      },
+      {
+        "language": "changelens-javascript",
+        "scopeName": "source.changelens.js",
+        "path": "./syntaxes/changelens-javascript.tmLanguage.json"
+      },
+      {
+        "language": "changelens-javascriptreact",
+        "scopeName": "source.changelens.js.jsx",
+        "path": "./syntaxes/changelens-javascriptreact.tmLanguage.json"
+      },
+      {
+        "language": "changelens-json",
+        "scopeName": "source.changelens.json",
+        "path": "./syntaxes/changelens-json.tmLanguage.json"
+      },
+      {
+        "language": "changelens-jsonc",
+        "scopeName": "source.changelens.json.comments",
+        "path": "./syntaxes/changelens-jsonc.tmLanguage.json"
+      },
+      {
+        "language": "changelens-css",
+        "scopeName": "source.changelens.css",
+        "path": "./syntaxes/changelens-css.tmLanguage.json"
+      },
+      {
+        "language": "changelens-scss",
+        "scopeName": "source.changelens.css.scss",
+        "path": "./syntaxes/changelens-scss.tmLanguage.json"
+      },
+      {
+        "language": "changelens-less",
+        "scopeName": "source.changelens.css.less",
+        "path": "./syntaxes/changelens-less.tmLanguage.json"
+      },
+      {
+        "language": "changelens-vue",
+        "scopeName": "text.html.changelens.vue",
+        "path": "./syntaxes/changelens-vue.tmLanguage.json"
+      },
+      {
+        "language": "changelens-mdx",
+        "scopeName": "source.changelens.mdx",
+        "path": "./syntaxes/changelens-mdx.tmLanguage.json"
+      },
+      {
+        "language": "changelens-yaml",
+        "scopeName": "source.changelens.yaml",
+        "path": "./syntaxes/changelens-yaml.tmLanguage.json"
+      },
+      {
+        "language": "changelens-dockercompose",
+        "scopeName": "source.changelens.dockercompose",
+        "path": "./syntaxes/changelens-dockercompose.tmLanguage.json"
+      },
+      {
+        "language": "changelens-github-actions-workflow",
+        "scopeName": "source.changelens.github-actions-workflow",
+        "path": "./syntaxes/changelens-github-actions-workflow.tmLanguage.json"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {

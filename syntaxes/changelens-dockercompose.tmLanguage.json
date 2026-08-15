@@ -1,0 +1,9 @@
+{
+  "name": "Compose (ChangeLens review)",
+  "scopeName": "source.changelens.dockercompose",
+  "patterns": [
+    {
+      "include": "source.yaml"
+    }
+  ]
+}
