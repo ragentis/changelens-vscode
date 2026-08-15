@@ -76,6 +76,17 @@ export class Range {
   }
 }
 
+/** Collapsed selections are all the extension makes, so anchor and active follow the two ends. */
+export class Selection extends Range {
+  get anchor(): Position {
+    return this.start;
+  }
+
+  get active(): Position {
+    return this.end;
+  }
+}
+
 export class CodeLens {
   constructor(
     readonly range: Range,
@@ -120,6 +131,12 @@ export class TreeItem {
 
 export const StatusBarAlignment = { Left: 1, Right: 2 } as const;
 export const OverviewRulerLane = { Left: 1, Center: 2, Right: 4, Full: 7 } as const;
+export const TextEditorRevealType = {
+  Default: 0,
+  InCenter: 1,
+  InCenterIfOutsideViewport: 2,
+  AtTop: 3,
+} as const;
 
 export class StatusBarItem {
   text = "";
@@ -400,18 +417,24 @@ export interface WorkspaceFolder {
 
 /** Records what was set on it rather than drawing anything, so a test can read the last render. */
 export class TextEditor {
-  readonly selection: { active: Position };
+  selection: Selection;
   readonly decorations = new Map<TextEditorDecorationType, Range[]>();
+  /** What the editor was asked to scroll into view, in the order it was asked. */
+  readonly revealed: Range[] = [];
 
   constructor(
     readonly document: TextDocument,
     line = 0,
   ) {
-    this.selection = { active: new Position(line, 0) };
+    this.selection = new Selection(line, 0, line, 0);
   }
 
   setDecorations(type: TextEditorDecorationType, ranges: Range[]): void {
     this.decorations.set(type, ranges);
+  }
+
+  revealRange(range: Range): void {
+    this.revealed.push(range);
   }
 }
 
@@ -508,11 +531,27 @@ export function reset(): void {
   state.answer = () => undefined;
 }
 
-/** Puts the cursor on `line` of an open document, as the active editor would. */
+/**
+ * Puts the cursor on `line` of an open document, as the active editor would. The active editor is
+ * always on screen too, and it has to be the same object: code that reaches an editor through the
+ * visible list writes the selection the commands then read.
+ */
 export function setActiveEditor(doc: TextDocument | undefined, line = 0): TextEditor | undefined {
-  state.activeTextEditor = doc ? new TextEditor(doc, line) : undefined;
-  state.activeEditorChanged.fire(state.activeTextEditor);
-  return state.activeTextEditor;
+  if (!doc) {
+    state.activeTextEditor = undefined;
+    state.activeEditorChanged.fire(undefined);
+    return undefined;
+  }
+
+  const shown = state.visibleTextEditors.find((editor) => editor.document === doc);
+  const active = shown ?? new TextEditor(doc);
+  active.selection = new Selection(line, 0, line, 0);
+  if (!shown) {
+    state.visibleTextEditors = [...state.visibleTextEditors, active];
+  }
+  state.activeTextEditor = active;
+  state.activeEditorChanged.fire(active);
+  return active;
 }
 
 /** Replaces what is on screen and raises the event the editor raises for it. */

@@ -9,6 +9,7 @@ import { ChangeModel } from "../src/model/changeModel";
 import { BaselineStore } from "../src/storage/baselineStore";
 import { ReviewFileSystemProvider } from "../src/ui/reviewFileSystemProvider";
 import { REVIEW_SCHEME } from "../src/ui/schemes";
+import { must } from "./helpers/assert";
 import { ageBlobs } from "./helpers/blobs";
 import * as editor from "./helpers/vscode";
 
@@ -442,6 +443,114 @@ test("the cursor command does nothing when the active file has no change", async
   await editor.run("changelens.acceptHunkAtCursor");
 
   expect(editor.state.executed).toEqual([]);
+});
+
+// #endregion
+
+// #region moving on to the next block
+
+const TWO_BLOCKS = {
+  baseline: "one\ntwo\nthree\nfour\nfive\nsix\nseven\n",
+  current: "ONE\ntwo\nthree\nfour\nfive\nsix\nSEVEN\n",
+  /** The same review interleaved, which is what the unified document shows. */
+  unified: "one\nONE\ntwo\nthree\nfour\nfive\nsix\nseven\nSEVEN\n",
+};
+
+/** A file whose two blocks sit on the first and the last line, with the cursor on one of them. */
+async function twoBlocks(cursorLine: number): Promise<editor.TextEditor> {
+  await write("a.ts", TWO_BLOCKS.baseline);
+  await model.initialize();
+  await agentWrote("a.ts", TWO_BLOCKS.current);
+
+  const doc = editor.openDocument(fsPath("a.ts"), TWO_BLOCKS.current);
+  return must(editor.setActiveEditor(doc, cursorLine), "the active editor");
+}
+
+test("accepting a block moves the cursor to the one after it", async () => {
+  const active = await twoBlocks(0);
+
+  await editor.run("changelens.acceptHunkAtCursor");
+
+  expect(active.selection.active.line).toBe(6);
+  expect(active.revealed.at(-1)?.start.line).toBe(6);
+});
+
+test("reverting a block moves the cursor along with it", async () => {
+  const active = await twoBlocks(0);
+
+  await editor.run("changelens.revertHunkAtCursor");
+
+  // The revert rewrote the first line, so the block left to review is the last one.
+  expect(active.selection.active.line).toBe(6);
+});
+
+test("accepting the last block settles on the last block left", async () => {
+  const active = await twoBlocks(6);
+
+  await editor.run("changelens.acceptHunkAtCursor");
+
+  expect(active.selection.active.line).toBe(0);
+});
+
+test("accepting the only block leaves the cursor where it was", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\nTWO\n");
+
+  const doc = editor.openDocument(fsPath("a.ts"), "one\nTWO\n");
+  const active = must(editor.setActiveEditor(doc, 1), "the active editor");
+  await editor.run("changelens.acceptHunkAtCursor");
+
+  expect(active.selection.active.line).toBe(1);
+  expect(active.revealed).toEqual([]);
+});
+
+test("jumpToNextChange off keeps the cursor on the accepted block", async () => {
+  editor.state.configuration.set("changelens.jumpToNextChange", false);
+  const active = await twoBlocks(0);
+  await model.reloadConfig();
+
+  await editor.run("changelens.acceptHunkAtCursor");
+
+  expect(active.selection.active.line).toBe(0);
+  expect(active.revealed).toEqual([]);
+});
+
+test("another group showing the same file stays where its reader left it", async () => {
+  await write("a.ts", TWO_BLOCKS.baseline);
+  await model.initialize();
+  await agentWrote("a.ts", TWO_BLOCKS.current);
+
+  const [aside] = editor.setVisibleEditors(editor.openDocument(fsPath("a.ts"), TWO_BLOCKS.current));
+  const review = editor.openDocument(fsPath("a.ts"), TWO_BLOCKS.unified, false, REVIEW_SCHEME);
+  const active = must(editor.setActiveEditor(review, 0), "the active editor");
+  const signature = model.get(key("a.ts"))?.signatures[0];
+
+  await editor.run("changelens.acceptHunk", key("a.ts"), signature);
+
+  expect(active.selection.active.line).toBe(6);
+  expect(must(aside, "the editor beside it").selection.active.line).toBe(0);
+});
+
+test("the cursor lands on the next block once the review document has reloaded", async () => {
+  await write("a.ts", TWO_BLOCKS.baseline);
+  await model.initialize();
+  await agentWrote("a.ts", TWO_BLOCKS.current);
+
+  const doc = editor.openDocument(fsPath("a.ts"), TWO_BLOCKS.unified, false, REVIEW_SCHEME);
+  const active = must(editor.setActiveEditor(doc, 0), "the active editor");
+  const signature = model.get(key("a.ts"))?.signatures[0];
+
+  await editor.run("changelens.acceptHunk", key("a.ts"), signature);
+
+  // The editor moves the cursor out of the way of the shorter document the provider now serves,
+  // which happens after the accept has already placed it.
+  doc.setText("ONE\ntwo\nthree\nfour\nfive\nsix\nseven\nSEVEN\n");
+  active.selection = new editor.Selection(4, 0, 4, 0);
+  editor.state.events.documentChanged.fire({ document: doc });
+
+  // The remaining block is the deleted line and its replacement at the end of the unified view.
+  expect(active.selection.active.line).toBe(6);
 });
 
 // #endregion

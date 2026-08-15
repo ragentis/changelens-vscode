@@ -11,6 +11,7 @@ export interface ChangeLensConfig {
   viewMode: ViewMode;
   reviewMode: ReviewMode;
   autoReveal: boolean;
+  jumpToNextChange: boolean;
 }
 
 export type ViewMode = "tree" | "list";
@@ -56,6 +57,7 @@ export function readConfig(): ChangeLensConfig {
     viewMode: normalizeViewMode(config.get<ViewMode>("defaultViewMode", "tree")),
     reviewMode: normalizeReviewMode(config.get<ReviewMode>("defaultReviewMode", "unified")),
     autoReveal: config.get("autoReveal", true),
+    jumpToNextChange: config.get("jumpToNextChange", true),
   };
 }
 

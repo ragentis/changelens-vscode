@@ -591,6 +591,12 @@
           "default": true,
           "order": 9,
           "description": "Select the active editor's file in the Changes view when it has pending changes."
+        },
+        "changelens.jumpToNextChange": {
+          "type": "boolean",
+          "default": true,
+          "order": 10,
+          "description": "Move the cursor to the next pending block after accepting or reverting one."
         }
       }
     },

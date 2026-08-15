@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { ChangeModel, PendingFile } from "../model";
 import type { BaselineStore } from "../storage";
+import { revealNextHunk } from "../ui/hunkNavigation";
 import { BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME, toReviewUri } from "../ui/schemes";
 import {
   ACCEPT_ALL,
@@ -141,22 +142,43 @@ export function registerCommands(
 
   // ── one block ────────────────────────────────────────────────────────────
 
+  /** Where the block sits in the review the action was issued against, before it is acted on. */
+  const hunkIndex = (key: string, signature: string): number => {
+    return model.get(key)?.signatures.indexOf(signature) ?? -1;
+  };
+
+  const advance = (key: string, index: number): void => {
+    if (index >= 0 && model.config.jumpToNextChange) {
+      revealNextHunk(model, key, index);
+    }
+  };
+
   const acceptHunk: HunkAction = async (key, signature) => {
     if (!requireBaseline()) {
       return;
     }
-    if (!(await model.acceptHunk(key, signature)) && requireBaseline()) {
-      warn(STALE_HUNK);
+    const index = hunkIndex(key, signature);
+    if (!(await model.acceptHunk(key, signature))) {
+      if (requireBaseline()) {
+        warn(STALE_HUNK);
+      }
+      return;
     }
+    advance(key, index);
   };
 
   const revertHunk: HunkAction = async (key, signature) => {
     if (!requireBaseline()) {
       return;
     }
-    if (!(await model.revertHunk(key, signature)) && requireBaseline()) {
-      warn(STALE_FILE);
+    const index = hunkIndex(key, signature);
+    if (!(await model.revertHunk(key, signature))) {
+      if (requireBaseline()) {
+        warn(STALE_FILE);
+      }
+      return;
     }
+    advance(key, index);
   };
 
   const atCursor = async (act: HunkAction) => {
