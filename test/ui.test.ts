@@ -10,7 +10,7 @@ import { activeFileContext } from "../src/ui/activeFileContext";
 import { ChangesTreeProvider } from "../src/ui/changesTree";
 import { HunkCodeLensProvider } from "../src/ui/hunkCodeLens";
 import { ReviewFileSystemProvider } from "../src/ui/reviewFileSystemProvider";
-import { BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME } from "../src/ui/schemes";
+import { BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME, TREE_SCHEME } from "../src/ui/schemes";
 import { must } from "./helpers/assert";
 import * as editor from "./helpers/vscode";
 
@@ -121,7 +121,7 @@ test("a single-root tree groups by folder without a redundant root above it", as
   provider.dispose();
 });
 
-test("a folder row carries the real directory, so decorations can reach it", async () => {
+test("tree rows use their own scheme while preserving real paths", async () => {
   await write("src/ui/a.ts", "one\n");
   await write("src/model/b.ts", "one\n");
   await model.initialize();
@@ -130,12 +130,24 @@ test("a folder row carries the real directory, so decorations can reach it", asy
 
   const provider = tree();
   const src = must(provider.getChildren()[0], "the src folder row");
-  expect(provider.getTreeItem(src).resourceUri?.fsPath).toBe(fsPath("src"));
+  const srcUri = provider.getTreeItem(src).resourceUri;
+  expect(srcUri?.scheme).toBe(TREE_SCHEME);
+  expect(srcUri?.fsPath).toBe(fsPath("src"));
 
-  const folders = provider
+  const folderUris = provider
     .getChildren(src)
-    .map((node) => provider.getTreeItem(node).resourceUri?.fsPath);
-  expect(folders).toEqual([fsPath("src", "model"), fsPath("src", "ui")]);
+    .map((node) => provider.getTreeItem(node).resourceUri);
+  expect(folderUris.map((uri) => uri?.scheme)).toEqual([TREE_SCHEME, TREE_SCHEME]);
+  expect(folderUris.map((uri) => uri?.fsPath)).toEqual([
+    fsPath("src", "model"),
+    fsPath("src", "ui"),
+  ]);
+
+  const modelFolder = must(provider.getChildren(src)[0], "the model folder row");
+  const file = must(provider.getChildren(modelFolder)[0], "the file row");
+  const fileUri = provider.getTreeItem(file).resourceUri;
+  expect(fileUri?.scheme).toBe(TREE_SCHEME);
+  expect(fileUri?.fsPath).toBe(fsPath("src", "model", "b.ts"));
   provider.dispose();
 });
 

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { ChangeModel, FileStatus } from "../model";
-import { fileKeyOf, isReviewUri } from "./schemes";
+import { fileKeyOf, isReviewUri, TREE_SCHEME } from "./schemes";
 
 /**
  * A square in the status colour, rather than a letter that would read as one of Git's own A/M/D
@@ -42,23 +42,29 @@ export class ChangeDecorationProvider implements vscode.FileDecorationProvider, 
 
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
     const onDisk = uri.scheme === "file";
-    if (!onDisk && !isReviewUri(uri)) {
+    const inTree = uri.scheme === TREE_SCHEME;
+    if (!onDisk && !inTree && !isReviewUri(uri)) {
       return undefined;
     }
     const file = this.model.get(fileKeyOf(uri));
     if (!file) {
       return undefined;
     }
-    // On a review tab the badge is set but never drawn: the editor's own read-only decoration
-    // carries a lock icon, and an icon suppresses every text badge merged with it. The colour is
-    // what shows there, and the merged tooltip names the status.
-    return {
-      badge: BADGES[file.status],
+    if (inTree && file.status === "modified") {
+      return undefined;
+    }
+    // The tree uses its own URI scheme so Git cannot merge a badge into these rows. ChangeLens
+    // colours only added and deleted rows there, and leaves badges to real files and review tabs.
+    const decoration: vscode.FileDecoration = {
       color: new vscode.ThemeColor(COLORS[file.status]),
       tooltip: `ChangeLens: ${file.status}`,
-      // Only the explorer has parents to carry a badge; a review URI has no tree above it.
+      // Only Explorer folders summarize descendant changes; tree folders stay undecorated.
       propagate: onDisk,
     };
+    if (!inTree) {
+      decoration.badge = BADGES[file.status];
+    }
+    return decoration;
   }
 
   dispose(): void {

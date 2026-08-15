@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { ViewMode } from "../config";
 import type { ChangeModel, OpaqueReason, PendingFile } from "../model";
+import { toTreeUri } from "./schemes";
 
 const OPAQUE_LABELS: Record<OpaqueReason, string> = {
   binary: "binary",
@@ -15,7 +16,7 @@ interface FolderNode {
   type: "folder";
   label: string;
   path: string;
-  /** The real directory on disk, so file decorations propagate onto the folder row. */
+  /** The directory path under the tree-only scheme, so only ChangeLens decorates this row. */
   uri: vscode.Uri | undefined;
   children: Node[];
 }
@@ -120,7 +121,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     if (element.type === "folder") {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
       if (element.uri) {
-        item.resourceUri = element.uri;
+        item.resourceUri = toTreeUri(element.uri);
       }
       item.iconPath = vscode.ThemeIcon.Folder;
       item.contextValue = "changelens.folder";
@@ -128,7 +129,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     }
 
     const file = element.file;
-    const item = new vscode.TreeItem(file.uri, vscode.TreeItemCollapsibleState.None);
+    const item = new vscode.TreeItem(toTreeUri(file.uri), vscode.TreeItemCollapsibleState.None);
     item.label = basename(file.uri.path);
     item.description = describe(file, this.viewMode === "list");
     item.contextValue = "changelens.file";

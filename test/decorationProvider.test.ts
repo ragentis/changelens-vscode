@@ -6,7 +6,7 @@ import { normalizeKey } from "../src/core/paths";
 import { ChangeModel } from "../src/model/changeModel";
 import { BaselineStore } from "../src/storage/baselineStore";
 import { ChangeDecorationProvider } from "../src/ui/decorationProvider";
-import { REVIEW_SCHEME } from "../src/ui/schemes";
+import { REVIEW_SCHEME, TREE_SCHEME } from "../src/ui/schemes";
 import { must } from "./helpers/assert";
 import * as editor from "./helpers/vscode";
 
@@ -92,6 +92,37 @@ test.each([
   expect(decoration.color).toEqual({ id: `changelens.${how}ResourceForeground` });
   // Folders show the badge of what is inside them, which is what makes a collapsed tree readable.
   expect(decoration.propagate).toBe(true);
+});
+
+test.each(["added", "deleted"] as const)(
+  "an %s Changes tree row keeps its colour without carrying a badge",
+  async (how) => {
+    await write("a.ts", "one\n");
+    await model.initialize();
+
+    if (how === "added") {
+      await agentWrote("new.ts", "fresh\n");
+    } else {
+      await fs.rm(fsPath("a.ts"));
+      await model.handleDiskDelete(editor.asUri(editor.Uri.file(fsPath("a.ts"))));
+    }
+
+    const name = how === "added" ? "new.ts" : "a.ts";
+    const decoration = must(decorationFor(name, TREE_SCHEME), "the tree row's decoration");
+
+    expect(decoration.badge).toBeUndefined();
+    expect(decoration.tooltip).toBe(`ChangeLens: ${how}`);
+    expect(decoration.color).toEqual({ id: `changelens.${how}ResourceForeground` });
+    expect(decoration.propagate).toBe(false);
+  },
+);
+
+test("a modified Changes tree row is left undecorated", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  expect(decorationFor("a.ts", TREE_SCHEME)).toBeUndefined();
 });
 
 test("a file nobody is reviewing is left undecorated", async () => {
