@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check; defaults to the triggering ref
+        required: false
+        type: string
+        default: ""
+
+# Nothing here needs write access; the jobs only build and check.
+permissions:
+  contents: read
+
+# `github.workflow` identifies the caller under `workflow_call`, keeping release verification
+# separate from the same commit's push run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Reject pushed subjects Release Please would silently ignore. PR branch subjects are squashed away.
+  commits:
+    name: Commit Convention
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      # Check every non-merge subject introduced since the shared commit, or the tip without a base.
+      - name: Check the subjects added by this event
+        env:
+          BASE: ${{ github.event.before }}
+        run: |
+          if git cat-file -e "${BASE}^{commit}" 2>/dev/null &&
+             base="$(git merge-base "$BASE" HEAD)"; then
+            selection=(--no-merges "${base}..HEAD")
+          else
+            echo "No usable base commit for this event; checking the tip only."
+            selection=(--no-merges -1 HEAD)
+          fi
+
+          git log --format=%s "${selection[@]}" | node scripts/check-commit-subject.mjs
+
+  checks:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      # Install scripts stay off: every tool here ships prebuilt platform binaries.
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+
+  test:
+    name: Tests (${{ matrix.os }})
+    # Exercise filesystem, process, and watcher behavior on every supported desktop OS.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+
+  package:
+    name: Package VSIX
+    # Not `commits`: that job is skipped on a pull request, and a skipped need skips its dependents.
+    needs: [checks, test]
+    # Packaging runs the bundle audit and validates the manifest. Installation and activation remain
+    # a manual release-approval step; release.yml publishes this exact artifact without rebuilding it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run package:local
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vsix
+          path: "*.vsix"
+          if-no-files-found: error
+          retention-days: 30

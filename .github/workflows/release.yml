@@ -1,0 +1,173 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (for example, v0.1.0)
+        required: true
+        type: string
+      publish_marketplace:
+        description: Publish to Visual Studio Marketplace
+        required: true
+        default: true
+        type: boolean
+      publish_open_vsx:
+        description: Publish to Open VSX
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+# Marketplace versions are immutable, so no two releases may publish concurrently.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Validate the release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate the tag input
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TARGET_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must have the form vX.Y.Z, received: ${TARGET_TAG}" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ inputs.tag }}
+
+      # The tag must match the extension version and point to a commit already on main.
+      - name: Validate the tagged commit
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+        run: |
+          tagged_commit="$(git rev-parse "refs/tags/${TARGET_TAG}^{commit}")"
+          if [ "$tagged_commit" != "$(git rev-parse HEAD)" ]; then
+            echo "Checkout does not point to ${TARGET_TAG}" >&2
+            exit 1
+          fi
+
+          manifest="$(node -p "require('./package.json').version")"
+          if [ "$TARGET_TAG" != "v${manifest}" ]; then
+            echo "Tag ${TARGET_TAG} does not match package.json version ${manifest}" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Tag ${TARGET_TAG} is not on the history of main" >&2
+            exit 1
+          fi
+
+  # Re-run the complete CI contract at the exact tag and build the only package published below.
+  ci:
+    name: Verify the release
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: refs/tags/${{ inputs.tag }}
+
+  github-release:
+    name: Publish the GitHub release
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: vsix
+          path: release-artifact
+
+      - name: Check the package against the tag
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+        run: |
+          expected="changelens-${TARGET_TAG#v}.vsix"
+          mapfile -t packages < <(find release-artifact -maxdepth 1 -type f -name '*.vsix')
+
+          if [ "${#packages[@]}" -ne 1 ] || [ "$(basename "${packages[0]}")" != "$expected" ]; then
+            echo "Expected exactly ${expected}, found: $(find release-artifact -maxdepth 1 -type f -printf '%f ')" >&2
+            exit 1
+          fi
+
+          echo "VSIX=${packages[0]}" >> "$GITHUB_ENV"
+
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
+            gh release upload "$TARGET_TAG" "$VSIX" --clobber
+          else
+            gh release create "$TARGET_TAG" "$VSIX" --verify-tag --generate-notes
+          fi
+
+  marketplace:
+    name: Publish to Visual Studio Marketplace
+    if: ${{ inputs.publish_marketplace }}
+    needs: github-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: vsix
+          path: release-artifact
+      - name: Publish
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          npx --no-install vsce publish \
+            --packagePath "release-artifact/changelens-${TARGET_TAG#v}.vsix" --skip-duplicate
+
+  open-vsx:
+    name: Publish to Open VSX
+    if: ${{ inputs.publish_open_vsx }}
+    needs: github-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: vsix
+          path: release-artifact
+      - name: Publish
+        env:
+          TARGET_TAG: ${{ inputs.tag }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          npx --no-install ovsx publish \
+            "release-artifact/changelens-${TARGET_TAG#v}.vsix" --skip-duplicate
