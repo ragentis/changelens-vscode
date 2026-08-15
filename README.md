@@ -24,10 +24,12 @@ The baseline lives in the extension's own storage, not in your workspace and not
 
 Pending files appear in the **ChangeLens** view in the activity bar, grouped as a tree or a flat list.
 
-Opening a file shows it in one of two review modes:
+Opening a text change shows it in one of two review modes:
 
-- **Unified** (default) — a single read-only editor with removed lines kept in place directly above the lines that replaced them, in full file context.
+- **Unified** (default) — a single read-only editor that opens at the first changed block, with removed lines kept in place directly above the lines that replaced them, in full file context.
 - **Diff editor** — VS Code's built-in diff editor.
+
+Review documents keep the file's syntax highlighting. For supported languages, validation is kept off the synthetic review document so deleted lines do not produce misleading errors.
 
 Toggle between them with **ChangeLens: Toggle Review Mode**. The choice is remembered per workspace.
 
@@ -36,11 +38,13 @@ Each block carries **Accept** and **Revert** CodeLens actions. The same actions 
 - **Accept** adopts the current content as the new baseline. Nothing on disk changes.
 - **Revert** restores the baseline content. For a modified file the change is applied to the editor buffer and left unsaved, so a plain undo takes it back. Reverting a file the agent added deletes it, after a confirmation. Reverting a file the agent deleted recreates it byte for byte.
 
+After a successful block action, ChangeLens moves the cursor to the next remaining block by default. Turn this off with `changelens.jumpToNextChange`.
+
 Reverting is refused when the file no longer holds what the diff was computed from, so a change that arrived while you were reading is never overwritten silently.
 
 ## Files without content
 
-Binary files, and files above `changelens.maxFileSizeKb`, are tracked by size and modification time alone. They still appear when they change, marked with the reason, but they carry no diff and cannot be reverted — there is no stored content to restore. Accepting one starts tracking it from its current state.
+Binary files, and files above `changelens.maxFileSizeKb`, are tracked by size and modification time rather than content. They still appear when they change, marked with the reason, but they carry no diff. When the current file still exists, opening it uses VS Code's normal file handling. A newly added contentless file can be reverted by deleting it after confirmation; a modified or deleted one cannot be restored because ChangeLens has no previous content for it. Accepting one adopts its current whole-file state as the new baseline.
 
 ## Scope
 
@@ -75,11 +79,12 @@ Switching branches rewrites files wholesale, and those writes are not agent chan
 | `changelens.exclude` | `.git`, `node_modules`, `dist`, `out`, `build`, lockfiles | Additional glob patterns excluded from tracking |
 | `changelens.maxFileSizeKb` | `512` | Files larger than this are tracked without content baselines |
 | `changelens.maxTrackedFiles` | `20000` | Warns when the baseline grows past this |
-| `changelens.defaultReviewMode` | `unified` | How a pending file opens, until the toggle is used |
-| `changelens.defaultViewMode` | `tree` | How the view groups files, until its toggle is used |
+| `changelens.defaultReviewMode` | `unified` | How a text change opens, until the toggle is used |
 | `changelens.showCodeLensInEditor` | `true` | Accept/Revert CodeLens above pending blocks in the regular editor |
 | `changelens.decorateEditor` | `true` | Highlight pending added lines in the regular editor |
+| `changelens.defaultViewMode` | `tree` | How the view groups files, until its toggle is used |
 | `changelens.autoReveal` | `true` | Select the active editor's file in the view |
+| `changelens.jumpToNextChange` | `true` | Move the cursor to the next remaining block after accepting or reverting a block |
 
 ## Requirements
 
