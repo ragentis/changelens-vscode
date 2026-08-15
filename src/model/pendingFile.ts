@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import type * as vscode from "vscode";
 import type { Hunk } from "../core/diff";
 import { computeHunks, countLines } from "../core/diff";
+import type { DiskStat } from "../core/files";
 import { detectEol, splitLines } from "../core/text";
 import type { UnifiedView } from "../core/unified";
 import { buildUnified } from "../core/unified";
@@ -25,6 +26,8 @@ export interface PendingFile {
   removed: number;
   /** Non-null means the file has no reviewable diff, and says why. */
   opaqueReason: OpaqueReason | null;
+  /** Last observed disk identity for an opaque current side, used before destructive actions. */
+  currentStat: DiskStat | null;
   /**
    * Text excludes the BOM. ChangeLens restores it only when recreating a deleted file; existing
    * file reverts use `WorkspaceEdit`, leaving encoding and BOM to VS Code. Accept records the
@@ -73,6 +76,7 @@ export function diffPending(
     added: counts.added,
     removed: counts.removed,
     opaqueReason: null,
+    currentStat: null,
     baselineHadBom,
     // An editor buffer never exposes the mark, so fall back to what the baseline recorded.
     currentHadBom: bom.current ?? baselineHadBom,
@@ -89,8 +93,9 @@ export function opaquePending(
   uri: vscode.Uri,
   status: FileStatus,
   reason: OpaqueReason,
-  currentText = "",
+  current: { text?: string; stat?: DiskStat } = {},
 ): PendingFile {
+  const currentText = current.text ?? "";
   return {
     key,
     uri,
@@ -100,6 +105,7 @@ export function opaquePending(
     added: 0,
     removed: 0,
     opaqueReason: reason,
+    currentStat: current.stat ?? null,
     baselineHadBom: false,
     currentHadBom: false,
     baselineText: "",

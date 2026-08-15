@@ -1495,7 +1495,7 @@ test("a binary file is tracked by its stat, and a change to it is reported witho
   expect(file?.unified).toBeNull();
 });
 
-test("a file tracked without content refuses both kinds of revert", async () => {
+test("a modified file tracked without content refuses both kinds of revert", async () => {
   await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x50, 0x00, 0x01]));
   await model.initialize();
 
@@ -1510,6 +1510,31 @@ test("a file tracked without content refuses both kinds of revert", async () => 
   expect(await fs.readFile(fsPath("logo.png"))).toEqual(
     Buffer.from([0x89, 0x50, 0x00, 0x02, 0x03]),
   );
+});
+
+test("reverting an added binary file deletes it", async () => {
+  await model.initialize();
+  await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x50, 0x00, 0x01]));
+  await model.handleDiskWrite(uri("logo.png"));
+
+  expect(model.get(key("logo.png"))?.status).toBe("added");
+  expect(model.get(key("logo.png"))?.opaqueReason).toBe("binary");
+  expect(await model.revertFile(key("logo.png"))).toBe(true);
+
+  expect(nodeFs.existsSync(fsPath("logo.png"))).toBe(false);
+  expect(model.files).toEqual([]);
+});
+
+test("reverting an added binary file is refused when its disk state moved on", async () => {
+  await model.initialize();
+  await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x50, 0x00, 0x01]));
+  await model.handleDiskWrite(uri("logo.png"));
+
+  await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x50, 0x00, 0x02, 0x03]));
+  expect(await model.revertFile(key("logo.png"))).toBe(false);
+
+  expect(nodeFs.existsSync(fsPath("logo.png"))).toBe(true);
+  expect(model.get(key("logo.png"))).toBeDefined();
 });
 
 test("a deleted binary file keeps the reason its baseline recorded", async () => {

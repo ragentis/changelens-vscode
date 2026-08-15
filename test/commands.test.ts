@@ -150,6 +150,21 @@ test("reverting a file the agent added asks before deleting it", async () => {
   expect(nodeFs.existsSync(fsPath("new.ts"))).toBe(false);
 });
 
+test("reverting an added binary file asks before deleting it", async () => {
+  await model.initialize();
+  await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x00, 0x01]));
+  await model.handleDiskWrite(editor.asUri(uri("logo.png")));
+
+  userClicks();
+  await editor.run("changelens.revertFile", key("logo.png"));
+  expect(nodeFs.existsSync(fsPath("logo.png"))).toBe(true);
+  expect(lastMessage()).toContain("Delete");
+
+  userClicks("Delete File");
+  await editor.run("changelens.revertFile", key("logo.png"));
+  expect(nodeFs.existsSync(fsPath("logo.png"))).toBe(false);
+});
+
 /**
  * Runs a command whose guard passes while the store is still initialized, then lets a capture
  * queued ahead of it fail, so the model turns the command down only once it reaches the chain.

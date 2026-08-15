@@ -188,9 +188,9 @@ export function registerCommands(
     if (!file) {
       return;
     }
-    // Prefer the file-specific refusal: a new capture would accept the current state, not restore
-    // content that is unavailable for revert.
-    if (file.opaqueReason) {
+    // An added opaque file needs no previous content and can follow the confirmed delete path.
+    // Other opaque states have nothing stored to restore, and a new capture would only accept them.
+    if (file.opaqueReason && file.status !== "added") {
       warn(REVERT_BLOCKED[file.opaqueReason]);
       return;
     }

@@ -1,4 +1,5 @@
 import type * as vscode from "vscode";
+import type { DiskStat } from "../core/files";
 import { normalizeKey } from "../core/paths";
 import { type BaselineRead, type BaselineStore, matchesDisk } from "../storage";
 import type { WorkspaceFilter } from "../tracking/filter";
@@ -88,7 +89,7 @@ export class PendingDeriver {
     baseline: BaselineRead,
   ): void {
     if (baseline.kind === "none") {
-      this.setOpaque(key, uri, "added", state.reason);
+      this.setOpaque(key, uri, "added", state.reason, { stat: state.stat });
       return;
     }
 
@@ -99,7 +100,7 @@ export class PendingDeriver {
     }
 
     const reason = baseline.kind === "unreadable" ? "lostBaseline" : state.reason;
-    this.setOpaque(key, uri, "modified", reason);
+    this.setOpaque(key, uri, "modified", reason, { stat: state.stat });
   }
 
   private async applyText(
@@ -118,7 +119,7 @@ export class PendingDeriver {
     }
 
     if (baseline.kind !== "text") {
-      this.setOpaque(key, uri, "modified", baselineReason(baseline), state.text);
+      this.setOpaque(key, uri, "modified", baselineReason(baseline), { text: state.text });
       return;
     }
 
@@ -163,8 +164,8 @@ export class PendingDeriver {
     uri: vscode.Uri,
     status: FileStatus,
     reason: OpaqueReason,
-    currentText?: string,
+    current: { text?: string; stat?: DiskStat } = {},
   ): void {
-    this.tracked.setPending(key, opaquePending(key, uri, status, reason, currentText));
+    this.tracked.setPending(key, opaquePending(key, uri, status, reason, current));
   }
 }

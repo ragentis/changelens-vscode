@@ -125,12 +125,26 @@ export class ReviewActions {
 
   private async revert(key: string, bulk: boolean): Promise<boolean> {
     const file = this.tracked.pending(key);
-    if (!file || file.opaqueReason) {
+    if (!file) {
       return false;
     }
 
     const edit = new vscode.WorkspaceEdit();
-    if (file.status === "deleted") {
+    if (file.opaqueReason) {
+      if (file.status !== "added" || !file.currentStat) {
+        return false;
+      }
+      const state = await this.reader.read(file.uri);
+      if (
+        state.kind !== "opaque" ||
+        state.stat.size !== file.currentStat.size ||
+        state.stat.mtimeMs !== file.currentStat.mtimeMs
+      ) {
+        await this.deriver.recompute(file.uri, bulk);
+        return false;
+      }
+      edit.deleteFile(file.uri, { ignoreIfNotExists: true });
+    } else if (file.status === "deleted") {
       edit.createFile(file.uri, {
         overwrite: false,
         contents: Buffer.from(
