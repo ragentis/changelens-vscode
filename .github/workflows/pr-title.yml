@@ -1,0 +1,26 @@
+name: PR Title
+
+# Squash merge makes the PR title the subject Release Please reads. A separate workflow reruns on
+# title edits without replaying CI; `synchronize` attaches the check to each new head commit.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    # Keep a distinct status name from the push-only commit convention check.
+    name: PR Title Convention
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: node scripts/check-commit-subject.mjs "$TITLE"
