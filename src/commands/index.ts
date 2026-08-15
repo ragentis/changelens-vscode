@@ -39,7 +39,7 @@ async function showPendingFile(
   options: vscode.TextDocumentShowOptions,
 ): Promise<void> {
   if (file.status !== "deleted") {
-    await vscode.window.showTextDocument(file.uri, options);
+    await vscode.commands.executeCommand("vscode.open", file.uri, options);
     return;
   }
   if (file.opaqueReason) {

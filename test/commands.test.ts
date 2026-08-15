@@ -458,7 +458,7 @@ test("the diff editor mode opens the built-in diff instead", async () => {
   expect(editor.state.executed.at(-1)?.command).toBe("vscode.diff");
 });
 
-test("a file with no diff opens as itself", async () => {
+test("a file with no diff opens through VS Code's text or binary editor routing", async () => {
   await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x00, 0x01]));
   await model.initialize();
   await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x00, 0x02, 0x03]));
@@ -466,7 +466,10 @@ test("a file with no diff opens as itself", async () => {
 
   await editor.run("changelens.openDiff", key("logo.png"));
 
-  expect(editor.state.shownDocuments.at(-1)?.scheme).toBe("file");
+  expect(editor.state.executed.at(-1)).toEqual({
+    command: "vscode.open",
+    args: [uri("logo.png"), { preview: true }],
+  });
 });
 
 test("toggling the review mode flips it back and forth", async () => {
