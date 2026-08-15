@@ -2,7 +2,7 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.1.0
+## 0.1.0 (2026-08-15)
 
 First release.
 
