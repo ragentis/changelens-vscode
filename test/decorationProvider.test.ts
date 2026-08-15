@@ -62,7 +62,7 @@ function decorationFor(name: string, scheme = "file") {
 function repaints(): string[][] {
   const seen: string[][] = [];
   provider.onDidChangeFileDecorations((uris) =>
-    seen.push((uris ?? []).map((uri) => path.basename(uri.fsPath))),
+    seen.push((uris ?? []).map((uri) => `${uri.scheme}:${path.basename(uri.fsPath)}`)),
   );
   return seen;
 }
@@ -125,6 +125,26 @@ test("a modified Changes tree row is left undecorated", async () => {
   expect(decorationFor("a.ts", TREE_SCHEME)).toBeUndefined();
 });
 
+test("a binary tree row is repainted red when it returns as deleted", async () => {
+  await model.initialize();
+  await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x00, 0x01]));
+  await model.handleDiskWrite(editor.asUri(editor.Uri.file(fsPath("logo.png"))));
+
+  expect(decorationFor("logo.png", TREE_SCHEME)?.color).toEqual({
+    id: "changelens.addedResourceForeground",
+  });
+  await model.acceptFile(key("logo.png"));
+
+  const seen = repaints();
+  await fs.rm(fsPath("logo.png"));
+  await model.handleDiskDelete(editor.asUri(editor.Uri.file(fsPath("logo.png"))));
+
+  expect(seen.at(-1)).toContain(`${TREE_SCHEME}:logo.png`);
+  expect(decorationFor("logo.png", TREE_SCHEME)?.color).toEqual({
+    id: "changelens.deletedResourceForeground",
+  });
+});
+
 test("a file nobody is reviewing is left undecorated", async () => {
   await write("a.ts", "one\n");
   await write("b.ts", "two\n");
@@ -185,14 +205,14 @@ test("a file that leaves the review is repainted, not left wearing its badge", a
 
   const seen = repaints();
   await agentWrote("a.ts", "one\ntwo\n");
-  expect(seen.at(-1)).toEqual(["a.ts"]);
+  expect(seen.at(-1)).toEqual(["file:a.ts", `${TREE_SCHEME}:a.ts`]);
 
   await model.acceptFile(key("a.ts"));
 
   // The file is no longer pending, so it appears in no new list. Naming only what is pending now
   // would leave the badge on screen until something else happened to repaint it.
   expect(model.files).toEqual([]);
-  expect(seen.at(-1)).toEqual(["a.ts"]);
+  expect(seen.at(-1)).toEqual(["file:a.ts", `${TREE_SCHEME}:a.ts`]);
   expect(decorationFor("a.ts")).toBeUndefined();
 });
 
@@ -206,8 +226,8 @@ test("a repaint names both the file that left and the one that arrived", async (
   await model.acceptFile(key("a.ts"));
   await agentWrote("b.ts", "two\nthree\n");
 
-  expect(seen.at(-1)).toEqual(["b.ts"]);
-  expect(seen.at(-2)).toEqual(["a.ts"]);
+  expect(seen.at(-1)).toEqual(["file:b.ts", `${TREE_SCHEME}:b.ts`]);
+  expect(seen.at(-2)).toEqual(["file:a.ts", `${TREE_SCHEME}:a.ts`]);
 });
 
 test("a disposed provider stops following the model", async () => {

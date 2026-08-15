@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { ChangeModel, FileStatus } from "../model";
-import { fileKeyOf, isReviewUri, TREE_SCHEME } from "./schemes";
+import { fileKeyOf, isReviewUri, toTreeUri, TREE_SCHEME } from "./schemes";
 
 /**
  * A square in the status colour, rather than a letter that would read as one of Git's own A/M/D
@@ -30,12 +30,19 @@ export class ChangeDecorationProvider implements vscode.FileDecorationProvider, 
   constructor(private readonly model: ChangeModel) {
     this.subscription = model.onDidChange(() => {
       const next = model.files.map((file) => file.uri);
+      const changed = [...this.decorated, ...next];
       // Reviews are taken from what is open rather than from what is pending, so the tab of a file
       // that just left the review is repainted instead of keeping its badge.
       const reviews = vscode.workspace.textDocuments
         .filter((doc) => isReviewUri(doc.uri))
         .map((doc) => doc.uri);
-      this._onDidChangeFileDecorations.fire([...this.decorated, ...next, ...reviews]);
+      // Tree rows use another scheme, so repaint them explicitly instead of leaving a cached colour
+      // behind when a path moves between added, deleted, and absent states.
+      this._onDidChangeFileDecorations.fire([
+        ...changed,
+        ...changed.map((uri) => toTreeUri(uri)),
+        ...reviews,
+      ]);
       this.decorated = next;
     });
   }
