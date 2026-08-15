@@ -172,6 +172,39 @@ test("accepting a file repaints the editor that was showing it", async () => {
   expect([...surface.decorations.values()].flat()).toEqual([]);
 });
 
+test("a reloaded review document is repainted, not left with the ranges it shifted", async () => {
+  await write("a.ts", "one\ntwo\nthree\nfour\nfive\n");
+  await model.initialize();
+  await agentWrote("a.ts", "ONE\ntwo\nthree\nFOUR\nfive\n");
+
+  const doc = editor.openDocument(
+    fsPath("a.ts"),
+    "one\nONE\ntwo\nthree\nfour\nFOUR\nfive\n",
+    false,
+    REVIEW_SCHEME,
+  );
+  const [shown] = editor.setVisibleEditors(doc);
+  const surface = must(shown, "the visible editor");
+  highlighter = new EditorHighlighter(model);
+
+  const file = must(model.files[0], "the pending file");
+  await model.acceptHunk(file.key, must(file.signatures[0], "the first signature"));
+
+  // The provider serves the shorter document only after the model change, and the editor moves
+  // whatever is on screen out of the way to make room for it.
+  surface.decorations.clear();
+  doc.setText("ONE\ntwo\nthree\nfour\nFOUR\nfive\n");
+  editor.state.events.documentChanged.fire({ document: doc });
+
+  const types = [...surface.decorations.keys()];
+  const lines = (index: number): number[] =>
+    (surface.decorations.get(must(types[index], "a decoration type")) ?? []).map(
+      (range) => range.start.line,
+    );
+  expect(lines(DELETED)).toEqual([3]);
+  expect(lines(ADDED)).toEqual([4]);
+});
+
 test("a disposed highlighter releases its decoration types", async () => {
   await write("a.ts", "one\n");
   await model.initialize();

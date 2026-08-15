@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import type { ChangeModel } from "../model";
 import type { LineSpan } from "./hunkGeometry";
 import { clampSpan, placeHunks } from "./hunkGeometry";
-import { fileKeyOf, REVIEW_SCHEME } from "./schemes";
+import { fileKeyOf, isReviewUri, REVIEW_SCHEME } from "./schemes";
 
 export class EditorHighlighter implements vscode.Disposable {
   private readonly added = vscode.window.createTextEditorDecorationType({
@@ -34,6 +34,14 @@ export class EditorHighlighter implements vscode.Disposable {
     this.disposables.push(
       model.onDidChange(() => this.renderAll()),
       vscode.window.onDidChangeVisibleTextEditors(() => this.renderAll()),
+      // A review document reloads after the model change that invalidated it, and the editor
+      // shifts the decorations already on screen by the lines that reload removed. Repainting
+      // against the arrived content puts them back where the model placed them.
+      vscode.workspace.onDidChangeTextDocument((event) => {
+        if (isReviewUri(event.document.uri)) {
+          this.renderDocument(event.document);
+        }
+      }),
     );
     this.renderAll();
   }
@@ -41,6 +49,14 @@ export class EditorHighlighter implements vscode.Disposable {
   private renderAll(): void {
     for (const editor of vscode.window.visibleTextEditors) {
       this.render(editor);
+    }
+  }
+
+  private renderDocument(document: vscode.TextDocument): void {
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.uri.toString() === document.uri.toString()) {
+        this.render(editor);
+      }
     }
   }
 
