@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { ChangeModel, PendingFile } from "../model";
 import type { BaselineStore } from "../storage";
-import { revealNextHunk } from "../ui/hunkNavigation";
+import { revealAdjacentHunk, revealNextHunk } from "../ui/hunkNavigation";
 import { BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME, toReviewUri } from "../ui/schemes";
 import {
   ACCEPT_ALL,
@@ -139,6 +139,9 @@ export function registerCommands(
     const next = await model.toggleReviewMode();
     info(reviewModeChanged(next));
   });
+
+  register("changelens.previousChange", () => revealAdjacentHunk(model, "previous"));
+  register("changelens.nextChange", () => revealAdjacentHunk(model, "next"));
 
   // ── one block ────────────────────────────────────────────────────────────
 

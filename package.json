@@ -344,6 +344,18 @@
         "category": "ChangeLens"
       },
       {
+        "command": "changelens.previousChange",
+        "title": "Previous Change",
+        "category": "ChangeLens",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "changelens.nextChange",
+        "title": "Next Change",
+        "category": "ChangeLens",
+        "icon": "$(arrow-down)"
+      },
+      {
         "command": "changelens.acceptHunkAtCursor",
         "title": "Accept Block at Cursor",
         "category": "ChangeLens",
@@ -413,9 +425,19 @@
           "group": "navigation@0.2"
         },
         {
+          "command": "changelens.previousChange",
+          "when": "resourceScheme == changelens-review && changelens.activeFileHasHunks",
+          "group": "navigation@0.3"
+        },
+        {
+          "command": "changelens.nextChange",
+          "when": "resourceScheme == changelens-review && changelens.activeFileHasHunks",
+          "group": "navigation@0.4"
+        },
+        {
           "command": "changelens.openFile",
           "when": "resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base",
-          "group": "navigation@0.3"
+          "group": "navigation@0.5"
         },
         {
           "command": "changelens.acceptFile",
@@ -495,6 +517,14 @@
         {
           "command": "changelens.toggleReviewMode",
           "when": "changelens.status == ready"
+        },
+        {
+          "command": "changelens.previousChange",
+          "when": "resourceScheme == changelens-review && changelens.activeFileHasHunks"
+        },
+        {
+          "command": "changelens.nextChange",
+          "when": "resourceScheme == changelens-review && changelens.activeFileHasHunks"
         },
         {
           "command": "changelens.viewAsList",

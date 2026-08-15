@@ -447,7 +447,7 @@ test("the cursor command does nothing when the active file has no change", async
 
 // #endregion
 
-// #region moving on to the next block
+// #region navigating between blocks
 
 const TWO_BLOCKS = {
   baseline: "one\ntwo\nthree\nfour\nfive\nsix\nseven\n",
@@ -465,6 +465,50 @@ async function twoBlocks(cursorLine: number): Promise<editor.TextEditor> {
   const doc = editor.openDocument(fsPath("a.ts"), TWO_BLOCKS.current);
   return must(editor.setActiveEditor(doc, cursorLine), "the active editor");
 }
+
+/** The same two-block file opened through the Unified review scheme. */
+async function twoBlockReview(cursorLine: number): Promise<editor.TextEditor> {
+  await write("a.ts", TWO_BLOCKS.baseline);
+  await model.initialize();
+  await agentWrote("a.ts", TWO_BLOCKS.current);
+
+  const doc = editor.openDocument(fsPath("a.ts"), TWO_BLOCKS.unified, false, REVIEW_SCHEME);
+  return must(editor.setActiveEditor(doc, cursorLine), "the active review editor");
+}
+
+test("Next Change moves through Unified blocks and wraps to the first", async () => {
+  const active = await twoBlockReview(0);
+
+  await editor.run("changelens.nextChange");
+  expect(active.selection.active.line).toBe(7);
+
+  await editor.run("changelens.nextChange");
+  expect(active.selection.active.line).toBe(0);
+});
+
+test("Previous Change moves through Unified blocks and wraps to the last", async () => {
+  const active = await twoBlockReview(7);
+
+  await editor.run("changelens.previousChange");
+  expect(active.selection.active.line).toBe(0);
+
+  await editor.run("changelens.previousChange");
+  expect(active.selection.active.line).toBe(7);
+});
+
+test("ChangeLens navigation leaves a native Diff Editor side to VS Code", async () => {
+  await write("a.ts", TWO_BLOCKS.baseline);
+  await model.initialize();
+  await agentWrote("a.ts", TWO_BLOCKS.current);
+
+  const doc = editor.openDocument(fsPath("a.ts"), TWO_BLOCKS.current, false, "changelens-current");
+  const active = must(editor.setActiveEditor(doc, 0), "the active current-side editor");
+
+  await editor.run("changelens.nextChange");
+
+  expect(active.selection.active.line).toBe(0);
+  expect(active.revealed).toEqual([]);
+});
 
 test("accepting a block moves the cursor to the one after it", async () => {
   const active = await twoBlocks(0);

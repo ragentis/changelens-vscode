@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { ChangeModel } from "../model";
 import { clampSpan, placeHunks } from "./hunkGeometry";
-import { fileKeyOf, isReviewUri } from "./schemes";
+import { fileKeyOf, isReviewUri, REVIEW_SCHEME } from "./schemes";
 
 /** How long the reveal waits for a review document to reload before giving up on it. */
 const RELOAD_WINDOW_MS = 1000;
@@ -34,6 +34,28 @@ export function revealNextHunk(model: ChangeModel, key: string, index: number): 
       revealHunk(settled, model, key, target);
     }
   });
+}
+
+/** Moves through Unified review blocks like the native diff editor, wrapping at either end. */
+export function revealAdjacentHunk(model: ChangeModel, direction: "previous" | "next"): void {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.document.uri.scheme !== REVIEW_SCHEME) {
+    return;
+  }
+
+  const key = fileKeyOf(editor.document.uri);
+  const placements = placeHunks(model.get(key), REVIEW_SCHEME);
+  if (placements.length === 0) {
+    return;
+  }
+
+  const line = editor.selection.active.line;
+  const found =
+    direction === "next"
+      ? placements.findIndex(({ block }) => block.start > line)
+      : placements.findLastIndex(({ block }) => block.start < line);
+  const target = found >= 0 ? found : direction === "next" ? 0 : placements.length - 1;
+  revealHunk(editor, model, key, target);
 }
 
 function revealHunk(
