@@ -35,6 +35,9 @@
     "gitless"
   ],
   "activationEvents": [
+    "onFileSystem:changelens-base",
+    "onFileSystem:changelens-current",
+    "onFileSystem:changelens-review",
     "onStartupFinished"
   ],
   "extensionKind": [
