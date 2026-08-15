@@ -405,17 +405,17 @@
         {
           "command": "changelens.acceptHunkAtCursor",
           "when": "(resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base) && changelens.activeFileHasHunks",
-          "group": "navigation@1"
+          "group": "navigation@0.1"
         },
         {
           "command": "changelens.revertHunkAtCursor",
           "when": "(resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base) && changelens.activeFileHasHunks",
-          "group": "navigation@2"
+          "group": "navigation@0.2"
         },
         {
           "command": "changelens.openFile",
           "when": "resourceScheme == changelens-current || resourceScheme == changelens-review || resourceScheme == changelens-base",
-          "group": "navigation@3"
+          "group": "navigation@0.3"
         },
         {
           "command": "changelens.acceptFile",
@@ -509,10 +509,62 @@
     "configuration": {
       "title": "ChangeLens",
       "properties": {
+        "changelens.defaultReviewMode": {
+          "type": "string",
+          "enum": [
+            "unified",
+            "diffEditor"
+          ],
+          "enumDescriptions": [
+            "Shows added and deleted lines inline in a single read-only editor.",
+            "Uses VS Code's built-in diff editor."
+          ],
+          "default": "unified",
+          "order": 1,
+          "description": "How a pending file is opened for review until the Toggle Review Mode command is used. That toggle is remembered per workspace and takes precedence here."
+        },
+        "changelens.jumpToNextChange": {
+          "type": "boolean",
+          "default": true,
+          "order": 2,
+          "description": "Move the cursor to the next pending block after accepting or reverting one."
+        },
+        "changelens.defaultViewMode": {
+          "type": "string",
+          "enum": [
+            "tree",
+            "list"
+          ],
+          "enumDescriptions": [
+            "Groups files under their folders.",
+            "Shows every file in one flat list, with its folder in the description."
+          ],
+          "default": "tree",
+          "order": 3,
+          "description": "How the Changes view groups files until the view's own toggle is used. That toggle is remembered per workspace and takes precedence here."
+        },
+        "changelens.autoReveal": {
+          "type": "boolean",
+          "default": true,
+          "order": 4,
+          "description": "Select the active editor's file in the Changes view when it has pending changes."
+        },
+        "changelens.showCodeLensInEditor": {
+          "type": "boolean",
+          "default": true,
+          "order": 5,
+          "description": "Show Accept/Revert CodeLens above pending changes in the regular editor."
+        },
+        "changelens.decorateEditor": {
+          "type": "boolean",
+          "default": true,
+          "order": 6,
+          "description": "Highlight pending added lines in the regular editor."
+        },
         "changelens.respectGitignore": {
           "type": "boolean",
           "default": true,
-          "order": 1,
+          "order": 7,
           "description": "Exclude files matched by the .gitignore in each workspace folder root. Nested .gitignore files are not read, and a rule cannot re-include a file inside an excluded folder."
         },
         "changelens.exclude": {
@@ -529,74 +581,22 @@
             "**/*.lock",
             "**/package-lock.json"
           ],
-          "order": 2,
+          "order": 8,
           "description": "Additional glob patterns excluded from tracking."
         },
         "changelens.maxFileSizeKb": {
           "type": "number",
           "default": 512,
           "minimum": 1,
-          "order": 3,
+          "order": 9,
           "description": "Files larger than this are tracked at file level only, without content baselines."
         },
         "changelens.maxTrackedFiles": {
           "type": "number",
           "default": 20000,
           "minimum": 1,
-          "order": 4,
-          "description": "Shows a warning when the number of files in the baseline exceeds this threshold."
-        },
-        "changelens.defaultReviewMode": {
-          "type": "string",
-          "enum": [
-            "unified",
-            "diffEditor"
-          ],
-          "enumDescriptions": [
-            "Shows added and deleted lines inline in a single read-only editor.",
-            "Uses VS Code's built-in diff editor."
-          ],
-          "default": "unified",
-          "order": 5,
-          "description": "How a pending file is opened for review until the Toggle Review Mode command is used. That toggle is remembered per workspace and takes precedence here."
-        },
-        "changelens.showCodeLensInEditor": {
-          "type": "boolean",
-          "default": true,
-          "order": 6,
-          "description": "Show Accept/Revert CodeLens above pending changes in the regular editor."
-        },
-        "changelens.decorateEditor": {
-          "type": "boolean",
-          "default": true,
-          "order": 7,
-          "description": "Highlight pending added lines in the regular editor."
-        },
-        "changelens.defaultViewMode": {
-          "type": "string",
-          "enum": [
-            "tree",
-            "list"
-          ],
-          "enumDescriptions": [
-            "Groups files under their folders.",
-            "Shows every file in one flat list, with its folder in the description."
-          ],
-          "default": "tree",
-          "order": 8,
-          "description": "How the Changes view groups files until the view's own toggle is used. That toggle is remembered per workspace and takes precedence here."
-        },
-        "changelens.autoReveal": {
-          "type": "boolean",
-          "default": true,
-          "order": 9,
-          "description": "Select the active editor's file in the Changes view when it has pending changes."
-        },
-        "changelens.jumpToNextChange": {
-          "type": "boolean",
-          "default": true,
           "order": 10,
-          "description": "Move the cursor to the next pending block after accepting or reverting one."
+          "description": "Shows a warning when the number of files in the baseline exceeds this threshold."
         }
       }
     },

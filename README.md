@@ -75,16 +75,16 @@ Switching branches rewrites files wholesale, and those writes are not agent chan
 
 | Setting | Default | What it does |
 | --- | --- | --- |
+| `changelens.defaultReviewMode` | `unified` | How a text change opens, until the toggle is used |
+| `changelens.jumpToNextChange` | `true` | Move the cursor to the next remaining block after accepting or reverting a block |
+| `changelens.defaultViewMode` | `tree` | How the view groups files, until its toggle is used |
+| `changelens.autoReveal` | `true` | Select the active editor's file in the view |
+| `changelens.showCodeLensInEditor` | `true` | Accept/Revert CodeLens above pending blocks in the regular editor |
+| `changelens.decorateEditor` | `true` | Highlight pending added lines in the regular editor |
 | `changelens.respectGitignore` | `true` | Exclude files matched by each workspace folder's root `.gitignore` |
 | `changelens.exclude` | `.git`, `node_modules`, `dist`, `out`, `build`, lockfiles | Additional glob patterns excluded from tracking |
 | `changelens.maxFileSizeKb` | `512` | Files larger than this are tracked without content baselines |
 | `changelens.maxTrackedFiles` | `20000` | Warns when the baseline grows past this |
-| `changelens.defaultReviewMode` | `unified` | How a text change opens, until the toggle is used |
-| `changelens.showCodeLensInEditor` | `true` | Accept/Revert CodeLens above pending blocks in the regular editor |
-| `changelens.decorateEditor` | `true` | Highlight pending added lines in the regular editor |
-| `changelens.defaultViewMode` | `tree` | How the view groups files, until its toggle is used |
-| `changelens.autoReveal` | `true` | Select the active editor's file in the view |
-| `changelens.jumpToNextChange` | `true` | Move the cursor to the next remaining block after accepting or reverting a block |
 
 ## Requirements
 
