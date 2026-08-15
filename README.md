@@ -10,6 +10,8 @@ When an agent edits your workspace, the changes land in your files immediately. 
 
 It works with any agent that writes to workspace files. Review state stays local, with no provider integration, remote service, commits, or staging required.
 
+<img src="assets/screenshot.png" width="1200" alt="The ChangeLens Changes view beside a unified review editor in VS Code, showing pending files, an import block with removed and added lines, and Accept Change and Revert actions.">
+
 ## How it works
 
 On first activation ChangeLens captures a baseline of every in-scope file. From then on:
