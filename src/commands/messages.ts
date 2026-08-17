@@ -34,6 +34,8 @@ export const NO_REVIEWABLE_EDITOR =
 export const NO_STORED_CONTENT =
   "ChangeLens: this file is tracked without content, so its previous version cannot be shown.";
 
+export const FILE_GONE = "ChangeLens: this file is no longer on disk, so it cannot be opened.";
+
 export const STALE_HUNK =
   "ChangeLens: that change is no longer current. The view has been refreshed.";
 

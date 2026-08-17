@@ -9,6 +9,7 @@ import {
   CAPTURE_BASELINE,
   DELETE_FILE,
   deleteAddedFile,
+  FILE_GONE,
   INCOMPLETE_BASELINE,
   info,
   NO_STORED_CONTENT,
@@ -23,7 +24,7 @@ import {
   STALE_HUNK,
   warn,
 } from "./messages";
-import { hunkAtCursor, resolveFile } from "./targets";
+import { hunkAtCursor, resolveFile, resolveReviewFileUri } from "./targets";
 
 export { resolveKey } from "./targets";
 
@@ -49,6 +50,15 @@ async function showPendingFile(
   }
   const doc = await vscode.workspace.openTextDocument(toReviewUri(BASE_SCHEME, file.uri));
   await vscode.window.showTextDocument(doc, options);
+}
+
+async function onDisk(uri: vscode.Uri): Promise<boolean> {
+  try {
+    await vscode.workspace.fs.stat(uri);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function registerCommands(
@@ -132,7 +142,17 @@ export function registerCommands(
     const file = resolveFile(model, arg);
     if (file) {
       await showPendingFile(file, { preview: false });
+      return;
     }
+    const uri = resolveReviewFileUri(arg);
+    if (!uri) {
+      return;
+    }
+    if (!(await onDisk(uri))) {
+      warn(FILE_GONE);
+      return;
+    }
+    await vscode.commands.executeCommand("vscode.open", uri, { preview: false });
   });
 
   register("changelens.toggleReviewMode", async () => {

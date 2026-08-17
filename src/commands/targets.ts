@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { ChangeModel, PendingFile } from "../model";
 import { clampSpan, placeHunks } from "../ui/hunkGeometry";
-import { fileKeyOf } from "../ui/schemes";
+import { fileKeyOf, isReviewUri, toFileUri } from "../ui/schemes";
 import { NO_BLOCK_AT_CURSOR, NO_REVIEWABLE_EDITOR } from "./messages";
 
 /**
@@ -46,6 +46,16 @@ export function resolveKey(model: ChangeModel, arg: unknown): string | undefined
 export function resolveFile(model: ChangeModel, arg: unknown): PendingFile | undefined {
   const key = resolveKey(model, arg);
   return key ? model.get(key) : undefined;
+}
+
+/**
+ * The workspace file a review editor stands for, whether or not it is still pending. A review tab
+ * outlives its pending entry: accepting the last block drops the file from the model, but the editor
+ * and its toolbar stay on screen.
+ */
+export function resolveReviewFileUri(arg: unknown): vscode.Uri | undefined {
+  const uri = arg instanceof vscode.Uri ? arg : vscode.window.activeTextEditor?.document.uri;
+  return uri && isReviewUri(uri) ? toFileUri(uri) : undefined;
 }
 
 /**

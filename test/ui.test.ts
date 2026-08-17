@@ -307,6 +307,57 @@ test("a contentless deletion says its previous version cannot be shown", async (
   expect(editor.state.shownDocuments).toEqual([]);
 });
 
+test("a review tab still opens its file after the last change in it is accepted", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\ntwo\n");
+  const provider = serveReviews(REVIEW_SCHEME);
+  await editor.workspace.openTextDocument(reviewUri(REVIEW_SCHEME, "a.ts"));
+
+  await model.acceptAll();
+  expect(model.get(key("a.ts"))).toBeUndefined();
+
+  await editor.run("changelens.openFile", reviewUri(REVIEW_SCHEME, "a.ts"));
+
+  expect(editor.state.executed.at(-1)).toEqual({
+    command: "vscode.open",
+    args: [editor.Uri.file(fsPath("a.ts")), { preview: false }],
+  });
+  provider.dispose();
+});
+
+test("an accepted review still opens its file from the active editor alone", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\ntwo\n");
+  const provider = serveReviews(REVIEW_SCHEME);
+  const review = await editor.workspace.openTextDocument(reviewUri(REVIEW_SCHEME, "a.ts"));
+  editor.setActiveEditor(review);
+
+  await model.acceptAll();
+  await editor.run("changelens.openFile");
+
+  expect(editor.state.executed.at(-1)).toEqual({
+    command: "vscode.open",
+    args: [editor.Uri.file(fsPath("a.ts")), { preview: false }],
+  });
+  provider.dispose();
+});
+
+test("a review tab for an accepted deletion reports the missing file instead of opening it", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  const provider = serveReviews(BASE_SCHEME);
+  await agentDeleted("a.ts");
+
+  await model.acceptAll();
+  await editor.run("changelens.openFile", reviewUri(BASE_SCHEME, "a.ts"));
+
+  expect(lastMessage()).toContain("no longer on disk");
+  expect(editor.state.executed.map((entry) => entry.command)).not.toContain("vscode.open");
+  provider.dispose();
+});
+
 // #endregion
 
 // #region the block at the cursor
