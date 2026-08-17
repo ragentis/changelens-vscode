@@ -108,6 +108,15 @@ export class ThemeColor {
   constructor(readonly id: string) {}
 }
 
+export class MarkdownString {
+  constructor(public value = "") {}
+
+  appendMarkdown(value: string): this {
+    this.value += value;
+    return this;
+  }
+}
+
 export class TreeItem {
   label: string | undefined;
   resourceUri: Uri | undefined;
@@ -415,10 +424,16 @@ export interface WorkspaceFolder {
   index: number;
 }
 
+export interface DecorationOptions {
+  range: Range;
+  hoverMessage?: MarkdownString;
+  renderOptions?: Record<string, unknown>;
+}
+
 /** Records what was set on it rather than drawing anything, so a test can read the last render. */
 export class TextEditor {
   selection: Selection;
-  readonly decorations = new Map<TextEditorDecorationType, Range[]>();
+  readonly decorations = new Map<TextEditorDecorationType, (Range | DecorationOptions)[]>();
   /** What the editor was asked to scroll into view, in the order it was asked. */
   readonly revealed: Range[] = [];
 
@@ -429,8 +444,8 @@ export class TextEditor {
     this.selection = new Selection(line, 0, line, 0);
   }
 
-  setDecorations(type: TextEditorDecorationType, ranges: Range[]): void {
-    this.decorations.set(type, ranges);
+  setDecorations(type: TextEditorDecorationType, items: (Range | DecorationOptions)[]): void {
+    this.decorations.set(type, items);
   }
 
   revealRange(range: Range): void {

@@ -676,6 +676,26 @@
           "highContrast": "gitDecoration.deletedResourceForeground",
           "highContrastLight": "gitDecoration.deletedResourceForeground"
         }
+      },
+      {
+        "id": "changelens.deletedLineMarker",
+        "description": "Color of the line marking where an external tool deleted lines that the editor cannot show.",
+        "defaults": {
+          "dark": "diffEditor.removedTextBackground",
+          "light": "diffEditor.removedTextBackground",
+          "highContrast": "diffEditor.removedTextBackground",
+          "highContrastLight": "diffEditor.removedTextBackground"
+        }
+      },
+      {
+        "id": "changelens.deletedLineMarkerForeground",
+        "description": "Color of the label reporting how many lines a deletion marker stands for.",
+        "defaults": {
+          "dark": "editorGutter.deletedBackground",
+          "light": "editorGutter.deletedBackground",
+          "highContrast": "editorGutter.deletedBackground",
+          "highContrastLight": "editorGutter.deletedBackground"
+        }
       }
     ]
   },
