@@ -1,12 +1,42 @@
 import * as vscode from "vscode";
+import type { DiskStat } from "../core/files";
 import { isInside, normalizeKey } from "../core/paths";
 import { textDigest } from "../core/text";
 import type { BaselineStore } from "../storage";
 import type { WorkspaceFilter } from "../tracking/filter";
 import { documentText, openDocument } from "./documents";
-import type { FileStateReader } from "./fileState";
+import type { FileState, FileStateReader, StatResult } from "./fileState";
 import type { ModelContext } from "./modelContext";
 import type { TrackedFiles } from "./trackedFiles";
+
+function currentStat(state: FileState): DiskStat | undefined {
+  if (state.kind === "text") {
+    return state.disk?.stat;
+  }
+  return state.kind === "opaque" ? state.stat : undefined;
+}
+
+/**
+ * Whether a reading still matches the snapshot. `found` is absent when the reading found no file,
+ * which only matches a snapshot that found none either.
+ *
+ * Unlike the stat shortcuts elsewhere, which only postpone a comparison, a wrong answer here
+ * overwrites the baseline and no later pass can find it.
+ */
+function matchesSnapshot(recorded: StatResult | undefined, found: DiskStat | undefined): boolean {
+  if (recorded === undefined) {
+    return false;
+  }
+  if (recorded.kind === "missing" || found === undefined) {
+    return recorded.kind === "missing" && found === undefined;
+  }
+
+  return (
+    recorded.kind === "stat" &&
+    found.size === recorded.stat.size &&
+    found.mtimeMs === recorded.stat.mtimeMs
+  );
+}
 
 /** Builds baseline snapshots; callers own ordering with derivation and queued work. */
 export class BaselineCapture {
@@ -85,8 +115,78 @@ export class BaselineCapture {
     this.context.warnIfCrowded();
   }
 
-  async storeBaselineFrom(uri: vscode.Uri): Promise<void> {
-    const state = await this.reader.read(uri, true);
+  /**
+   * What each path is right now. The caller decides when this is taken, because it is only proof
+   * of anything in relation to the check it is paired with.
+   */
+  async snapshotDisk(uris: readonly vscode.Uri[]): Promise<Map<string, StatResult>> {
+    const recorded = new Map<string, StatResult>();
+    for (const uri of uris) {
+      recorded.set(normalizeKey(uri.fsPath), await this.reader.stat(uri));
+    }
+    return recorded;
+  }
+
+  /**
+   * Adopts what Git left on disk, for paths Git itself wrote. A path Git deleted drops its
+   * baseline rather than staying behind as a pending deletion.
+   *
+   * A path whose file no longer matches its snapshot is left alone: something wrote it after Git's
+   * ownership was established, and adopting that write is exactly what must never happen.
+   */
+  async adoptGitWrites(
+    uris: readonly vscode.Uri[],
+    recorded: ReadonlyMap<string, StatResult>,
+  ): Promise<void> {
+    for (const uri of uris) {
+      const key = normalizeKey(uri.fsPath);
+      // An unsaved buffer outranks the file underneath it, as it does for any other external write.
+      if (!this.filter.isTracked(uri) || openDocument(uri)?.isDirty === true) {
+        continue;
+      }
+
+      const state = await this.reader.read(uri, true);
+      if (state.kind === "unreadable" || !(await this.unwritten(uri, recorded.get(key), state))) {
+        continue;
+      }
+
+      if (state.kind === "missing") {
+        this.store.delete(key);
+        this.tracked.forgetContent(key);
+      } else {
+        await this.storeBaselineFrom(uri, state);
+      }
+      this.tracked.removePending(key);
+    }
+
+    this.context.warnIfCrowded();
+    await this.store.flush();
+  }
+
+  /**
+   * Whether the file still holds what the snapshot recorded, asked around the read rather than
+   * before it. A reading stats before it reads, so a write landing between those two would
+   * otherwise be adopted: the stat would be Git's while the content already belonged to whoever
+   * wrote it. The second reading is what rules that out.
+   */
+  private async unwritten(
+    uri: vscode.Uri,
+    recorded: StatResult | undefined,
+    state: FileState,
+  ): Promise<boolean> {
+    if (!matchesSnapshot(recorded, currentStat(state))) {
+      return false;
+    }
+
+    const after = await this.reader.stat(uri);
+    if (after.kind === "unreadable") {
+      return false;
+    }
+    return matchesSnapshot(recorded, after.kind === "stat" ? after.stat : undefined);
+  }
+
+  async storeBaselineFrom(uri: vscode.Uri, known?: FileState): Promise<void> {
+    const state = known ?? (await this.reader.read(uri, true));
     if (state.kind === "missing" || state.kind === "unreadable") {
       return;
     }

@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { isInside } from "../src/core/paths";
-import { resolveGitHead } from "../src/tracking/gitHead";
+import { resolveGitHead, resolveGitReflog } from "../src/tracking/git";
 
 /**
  * Run against real Git rather than a stub: the whole point of asking `rev-parse` is that layouts
@@ -69,6 +69,18 @@ test("a linked worktree resolves to the HEAD outside the folder that governs it"
   // resolved path rather than from the workspace folder.
   expect(head).toBe(path.join(repo, ".git", "worktrees", "feature", "HEAD"));
   expect(isInside(linked, head)).toBe(false);
+});
+
+test("a linked worktree resolves to its own reflog, not the main one", async () => {
+  const repo = await repository("app");
+  const linked = path.join(root, "feature");
+  git(repo, "worktree", "add", "-b", "feature", linked);
+
+  // A pull inside the worktree appends here and nowhere else, so watching the main repository's
+  // reflog would never see it.
+  expect(await resolveGitReflog(linked)).toBe(
+    path.join(repo, ".git", "worktrees", "feature", "logs", "HEAD"),
+  );
 });
 
 test("a submodule resolves to the HEAD the parent repository keeps for it", async () => {

@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { ChangeModel } from "../model";
-import { resolveGitHead } from "./gitHead";
+import { resolveGitHead, resolveGitReflog } from "./git";
 
 const DISK_DEBOUNCE_MS = 150;
 const BUFFER_DEBOUNCE_MS = 400;
@@ -29,7 +29,7 @@ export class WorkspaceWatcher implements vscode.Disposable {
 
   constructor(
     private readonly model: ChangeModel,
-    private readonly onGitHeadChanged: () => Promise<void> | void,
+    private readonly onGitMovement: (folder: string) => Promise<void> | void,
     options: WorkspaceWatcherOptions = {},
   ) {
     this.onError = options.onError ?? (() => undefined);
@@ -108,7 +108,7 @@ export class WorkspaceWatcher implements vscode.Disposable {
 
   // ── repository events ────────────────────────────────────────────────────
 
-  /** Re-watches every folder's `.gitignore` and the HEAD that governs it. */
+  /** Re-watches every folder's `.gitignore` and the Git files that report a HEAD movement. */
   private watchRepositories(): void {
     const generation = (this.repoGeneration += 1);
     for (const disposable of this.repoWatchers) {
@@ -133,19 +133,36 @@ export class WorkspaceWatcher implements vscode.Disposable {
       );
 
       this.dispatch("A repository lookup", async () => {
-        const head = await resolveGitHead(folder.uri.fsPath);
+        const fsPath = folder.uri.fsPath;
+        // HEAD alone only moves on a branch switch. Every other way Git rewrites the working tree —
+        // pull, merge, rebase, reset — moves the branch ref instead, and appends to the reflog.
+        const [head, reflog] = await Promise.all([
+          resolveGitHead(fsPath),
+          resolveGitReflog(fsPath),
+        ]);
         if (generation !== this.repoGeneration) {
           return;
         }
-        // A worktree's HEAD may live outside the workspace; this exact pattern still watches it.
-        const watcher = vscode.workspace.createFileSystemWatcher(
-          new vscode.RelativePattern(vscode.Uri.file(path.dirname(head)), path.basename(head)),
-        );
+
         const handler = () =>
-          this.schedule("git:head", REPO_DEBOUNCE_MS, "A branch change", () =>
-            this.onGitHeadChanged(),
+          this.schedule(`git:head:${fsPath}`, REPO_DEBOUNCE_MS, "A Git change", () =>
+            this.onGitMovement(fsPath),
           );
-        this.repoWatchers.push(watcher, watcher.onDidChange(handler), watcher.onDidCreate(handler));
+        for (const target of new Set([head, reflog])) {
+          // These may live outside the workspace, as a worktree's do; the exact pattern still
+          // watches them.
+          const watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(
+              vscode.Uri.file(path.dirname(target)),
+              path.basename(target),
+            ),
+          );
+          this.repoWatchers.push(
+            watcher,
+            watcher.onDidChange(handler),
+            watcher.onDidCreate(handler),
+          );
+        }
       });
     }
   }

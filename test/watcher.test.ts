@@ -24,8 +24,9 @@ const gitHead = vi.hoisted(() => ({
   resolve: (folder: string): Promise<string> => Promise.resolve(`${folder}/.git/HEAD`),
 }));
 
-vi.mock("../src/tracking/gitHead", () => ({
+vi.mock("../src/tracking/git", () => ({
   resolveGitHead: (folder: string) => gitHead.resolve(folder),
+  resolveGitReflog: (folder: string) => Promise.resolve(`${folder}/.git/logs/HEAD`),
 }));
 
 let root: string;
@@ -34,7 +35,7 @@ let store: BaselineStore;
 let model: ChangeModel;
 let watcher: WorkspaceWatcher;
 let errors: string[];
-let headChanges: number;
+let movements: string[];
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -46,9 +47,9 @@ beforeEach(async () => {
   store = new BaselineStore(path.join(root, "state"));
   model = new ChangeModel(store);
   errors = [];
-  headChanges = 0;
+  movements = [];
   gitHead.resolve = (folder: string) => Promise.resolve(`${folder}/.git/HEAD`);
-  watcher = new WorkspaceWatcher(model, () => void (headChanges += 1), {
+  watcher = new WorkspaceWatcher(model, (folder) => void movements.push(folder), {
     onError: (message) => errors.push(message),
   });
 });
@@ -206,7 +207,7 @@ test("opening or closing a workspace folder rescopes and re-watches the reposito
   expect(must(editor.watchersFor(".gitignore").at(-1), "the rebuilt watcher")).not.toBe(before);
 });
 
-test("a change to the governing HEAD reaches the branch-switch handler", async () => {
+test("a change to the governing HEAD reaches the Git handler", async () => {
   watcher.activate();
   // The lookup that finds HEAD is asynchronous, so its watcher appears a turn after activation.
   await advance(0);
@@ -214,7 +215,35 @@ test("a change to the governing HEAD reaches the branch-switch handler", async (
   must(editor.watchersFor("HEAD").at(-1), "the HEAD watcher").fire("change", uri(".git/HEAD"));
   await advance(600);
 
-  expect(headChanges).toBe(1);
+  expect(movements).toEqual([workspace]);
+});
+
+test("a reflog append reaches the Git handler, which is how a pull is seen at all", async () => {
+  watcher.activate();
+  await advance(0);
+
+  // A pull moves the branch ref, not HEAD, so this is the only file it touches that is watched.
+  // Both watchers match on basename; the reflog's is registered second.
+  must(editor.watchersFor("HEAD").at(1), "the reflog watcher").fire(
+    "change",
+    uri(".git/logs/HEAD"),
+  );
+  await advance(600);
+
+  expect(movements).toEqual([workspace]);
+});
+
+test("HEAD and its reflog moving together are handled once", async () => {
+  watcher.activate();
+  await advance(0);
+
+  // A checkout writes both, and re-reading the repository twice would only race with itself.
+  for (const target of editor.watchersFor("HEAD")) {
+    target.fire("change", uri(".git/HEAD"));
+  }
+  await advance(600);
+
+  expect(movements).toEqual([workspace]);
 });
 
 test("a HEAD lookup that lands after a re-watch registers nothing", async () => {
@@ -230,7 +259,7 @@ test("a HEAD lookup that lands after a re-watch registers nothing", async () => 
   editor.state.events.foldersChanged.fire();
   await advance(0);
   const current = editor.watchersFor("HEAD");
-  expect(current).toHaveLength(1);
+  expect(current).toHaveLength(2);
 
   parked.resolve(`${workspace}/.git/HEAD`);
   await advance(0);

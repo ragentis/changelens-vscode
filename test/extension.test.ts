@@ -14,8 +14,15 @@ import * as editor from "./helpers/vscode";
  */
 
 // Real Git would spawn a child in the temp workspace, which then cannot be removed on Windows.
-vi.mock("../src/tracking/gitHead", () => ({
+vi.mock("../src/tracking/git", () => ({
   resolveGitHead: (folder: string) => Promise.resolve(`${folder}/.git/HEAD`),
+  resolveGitReflog: (folder: string) => Promise.resolve(`${folder}/.git/logs/HEAD`),
+}));
+
+vi.mock("../src/tracking/gitMovement", () => ({
+  describeMovement: () => Promise.resolve({ kind: "unavailable" }),
+  changedPaths: () => Promise.resolve([]),
+  pathsMatchingHead: () => Promise.resolve([]),
 }));
 
 let root: string;

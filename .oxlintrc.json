@@ -70,7 +70,9 @@
         "src/model/reviewActions.ts",
         "src/storage/baselineStore.ts",
         "src/storage/blobStore.ts",
-        "src/tracking/filter.ts"
+        "src/tracking/filter.ts",
+        "src/tracking/gitMovement.ts",
+        "src/tracking/gitSync.ts"
       ],
       "rules": {
         "eslint/no-await-in-loop": "off"

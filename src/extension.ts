@@ -4,7 +4,7 @@ import { registerCommands } from "./commands";
 import type { ViewMode } from "./config";
 import { ChangeModel } from "./model";
 import { BaselineStore } from "./storage";
-import { handleGitHeadChanged } from "./tracking/branchChange";
+import { GitSync } from "./tracking/gitSync";
 import { WorkspaceWatcher } from "./tracking/watcher";
 import { activeFileContext } from "./ui/activeFileContext";
 import { ChangesTreeProvider } from "./ui/changesTree";
@@ -160,7 +160,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerCommands(context, model, store);
   publishViewMode();
 
-  const watcher = new WorkspaceWatcher(model, () => handleGitHeadChanged(model), {
+  const gitSync = new GitSync(model, context.workspaceState);
+  const watcher = new WorkspaceWatcher(model, (folder) => gitSync.sync(folder), {
     onError: report,
   });
   context.subscriptions.push(watcher);
@@ -178,6 +179,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   setStatus("ready");
   void vscode.commands.executeCommand("setContext", "changelens.hasChanges", model.hasChanges);
   watcher.activate();
+
+  // A pull that landed while this window was closed is Git's work, not an agent's. This asks Git
+  // before it can join the model's chain, so the reconcile below reaches it first and briefly
+  // reports those files; the adoption that follows takes them back out.
+  void gitSync.syncAll().catch((error: unknown) => {
+    report("The check for Git changes made outside this window did not finish.", error);
+  });
 
   // Nothing was listening while the baseline was being built, so a write that landed after its
   // file was read raised no event anyone received. Stats recorded moments ago can still match such

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 // Machine-check the shipped-code claims that are easy to regress: only project-owned inputs, no
-// runtime dependencies or network access, and one fixed Git command without a shell. Filesystem
+// runtime dependencies or network access, and one fixed Git program without a shell. Filesystem
 // writes are intentionally allowed because baseline persistence and revert are core behavior.
 
 const manifest = JSON.parse(await readFile("package.json", "utf8"));
@@ -83,8 +83,8 @@ for (const pattern of forbiddenPatterns) {
   }
 }
 
-// The only process boundary is the fixed Git query documented in SECURITY.md. Following the
-// bundler binding prevents another child_process member from hiding behind the allowed module.
+// The only process boundary is the Git queries documented in SECURITY.md. Following the bundler
+// binding prevents another child_process member from hiding behind the allowed module.
 const childProcessRequire = /require\("node:child_process"\)/;
 const childProcessBindings = [
   ...bundle.matchAll(
@@ -110,11 +110,13 @@ if (childProcessMembers.length !== 1 || childProcessMembers[0] !== "execFile") {
   fail(`Unexpected child_process access: ${childProcessMembers.join(", ") || "(none)"}`);
 }
 
+// The queries themselves are assembled from literals in src/tracking, which shipped text cannot
+// enumerate. What it can still hold is the shape: one call site, one fixed program, and an argument
+// list the call receives rather than builds. Inlining an array here fails this check on purpose.
 const gitCalls = bundle.match(/\bexecFileAsync\s*\(/g) ?? [];
-const expectedGitCall =
-  /\bexecFileAsync\s*\(\s*"git"\s*,\s*\[\s*"rev-parse"\s*,\s*"--git-path"\s*,\s*"HEAD"\s*\]\s*,/;
+const expectedGitCall = /\bexecFileAsync\s*\(\s*"git"\s*,\s*[\w$]+\s*,/;
 if (gitCalls.length !== 1 || !expectedGitCall.test(bundle)) {
-  fail("The only external command must be git rev-parse --git-path HEAD");
+  fail("The only external program must be git, spawned once with a prepared argument list");
 }
 
 console.log(
@@ -122,7 +124,7 @@ console.log(
     `Bundle audit passed: ${inputs.length} source inputs,`,
     `${new Set(externalImports).size} allowed external modules,`,
     "no runtime dependencies or network access,",
-    "one fixed Git command without a shell.",
+    "one Git program without a shell.",
   ].join(" "),
 );
 

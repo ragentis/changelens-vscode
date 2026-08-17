@@ -4,6 +4,7 @@ import { type BaselineStore, matchesDisk } from "../storage";
 import type { ChangeLensConfig, ReviewMode, ViewMode } from "../config";
 import { BaselineCapture } from "./baselineCapture";
 import { FileEvents } from "./fileEvents";
+import type { StatResult } from "./fileState";
 import type { DeferredEvent } from "./fileWork";
 import { ModelContext } from "./modelContext";
 import { PendingDeriver } from "./pendingDeriver";
@@ -232,6 +233,55 @@ export class ChangeModel implements vscode.Disposable {
 
     if (failure) {
       this.capture.announceFailure(initial);
+      throw failure.error;
+    }
+  }
+
+  /**
+   * Records what the given files are now, for {@link absorbGitRewrite} to verify against. Kept off
+   * the lifecycle chain so the caller decides when it happens, which is what its value depends on.
+   */
+  snapshotDisk(uris: readonly vscode.Uri[]): Promise<Map<string, StatResult>> {
+    return this.capture.snapshotDisk(uris);
+  }
+
+  /**
+   * Adopts the given files as they are now, bypassing review. Only for writes Git made itself: the
+   * caller has established which paths those are, and everything else stays pending.
+   */
+  absorbGitRewrite(
+    uris: readonly vscode.Uri[],
+    recorded: ReadonlyMap<string, StatResult>,
+  ): Promise<void> {
+    return this.exclusive(() => this.runAbsorb(uris, recorded));
+  }
+
+  private async runAbsorb(
+    uris: readonly vscode.Uri[],
+    recorded: ReadonlyMap<string, StatResult>,
+  ): Promise<void> {
+    const work = this.context.work;
+    // Deferral keeps a write arriving mid-adoption from being derived against a half-moved baseline.
+    work.beginDeferring();
+    let deferred: DeferredEvent[] = [];
+    let failure: { error: unknown } | undefined;
+
+    try {
+      await work.drainFiles();
+      await this.capture.adoptGitWrites(uris, recorded);
+    } catch (error) {
+      failure = { error };
+    } finally {
+      deferred = work.stopDeferring();
+    }
+    // A write that landed while Git's work was being adopted is an external change like any other.
+    for (const event of deferred) {
+      await this.events.replay(event);
+    }
+
+    this.fire();
+
+    if (failure) {
       throw failure.error;
     }
   }

@@ -57,9 +57,18 @@ A file is tracked when it is inside an open workspace folder and matched by neit
 
 Files that leave scope keep their baselines, so bringing them back does not silently accept whatever changed while they were hidden.
 
-## Branch changes
+## Git changes
 
-Switching branches rewrites files wholesale, and those writes are not agent changes. ChangeLens watches the Git HEAD that governs each folder — including worktrees and submodules — and resets the baseline when there is nothing pending. When there is, it asks first.
+A pull, merge, rebase, branch switch, or hard reset rewrites files, and those writes are not agent changes. ChangeLens watches the HEAD and the reflog that govern each folder — including worktrees and submodules — and folds Git's writes into the baseline instead of showing them for review.
+
+Only the files Git actually rewrote are folded in, named by comparing the commits HEAD moved between, so anything Git did not touch stays pending. A file is adopted only while it still holds what Git left there, judged by its size and modification time. A write that lands while Git's work is being folded in is left for review instead.
+
+- **A commit is not a review.** Committing rewrites nothing on disk, so an agent's change stays pending after you commit it. It stops being pending the next time Git rewrites that file — a pull, a rebase, or switching branches away and back — because Git's version of the file then becomes the baseline as a whole. Review before you commit, or the review lasts only until Git next writes the file.
+- **Uncommitted changes are never taken.** Git refuses to overwrite a locally modified file, so a change you have not accepted is either left alone by Git or excluded because the file no longer matches HEAD.
+- **Conflicts resolve themselves.** A merge that stops on a conflict has not moved HEAD, so the files Git left behind stay visible while you work through them. Committing the merge folds the whole merge in, and aborting it restores what the baseline was captured from.
+- **A pull made while the window was closed** is recognised the next time the window opens.
+
+This rests on the reflog, which Git keeps by default in every repository with a working tree. Where it has been switched off with `core.logAllRefUpdates`, nothing records what moved HEAD, and a pull cannot be told apart from a commit of work you have not reviewed — so ChangeLens guesses at neither. It still recognises branch switches, which move HEAD itself, and falls back to resetting the whole baseline after asking. Files a pull rewrites on the current branch stay pending there.
 
 ## Commands
 
@@ -106,12 +115,14 @@ To install a downloaded `.vsix` by hand:
 ## Known limits
 
 - Only the `.gitignore` at each workspace folder's root is read; nested ones are not.
+- Git commands that rewrite files without moving HEAD — `git stash pop`, `git restore`, `git checkout -- <file>` — are reviewed as external changes, because nothing identifies them as Git's work.
+- Files Git updates inside a submodule are reviewed as external changes. A parent repository's commits name the submodule, not the files in it.
 - A file or folder moved outside the editor is reviewed as a deletion at the old path and an addition at the new one. ChangeLens does not detect renames.
 - If a capture fails at startup, the window is not tracked until it is reloaded.
 
 ## Security
 
-Baseline content is stored in VS Code's extension storage and is not encrypted. Anyone who can read your user profile can read it. The extension has no runtime dependencies, telemetry, or network access. Its only external command is `git rev-parse --git-path HEAD`, run without a shell to follow branch changes.
+Baseline content is stored in VS Code's extension storage and is not encrypted. Anyone who can read your user profile can read it. The extension has no runtime dependencies, telemetry, or network access. The only external program it runs is `git`, without a shell, to read where each folder's HEAD stands and which files a Git operation rewrote.
 
 See [SECURITY.md](SECURITY.md) for the complete data boundary and vulnerability reporting instructions.
 

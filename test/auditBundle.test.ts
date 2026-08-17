@@ -5,10 +5,11 @@ import { spawnSync } from "node:child_process";
 import { expect, test } from "vitest";
 
 const AUDIT_SCRIPT = path.resolve("scripts/audit-bundle.mjs");
+/** The shape the bundle actually has: one call site, taking the arguments its caller prepared. */
 const VALID_BUNDLE = `
 var childProcess = require("node:child_process");
 var execFileAsync = promisify(childProcess.execFile);
-execFileAsync("git", ["rev-parse", "--git-path", "HEAD"], { cwd: folder });
+execFileAsync("git", args, { cwd: folder });
 `;
 
 interface Fixture {
@@ -56,7 +57,7 @@ test("accepts the intended self-contained bundle boundary", async () => {
   const result = await runAudit();
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain("one fixed Git command without a shell");
+  expect(result.stdout).toContain("one Git program without a shell");
 });
 
 test.each([
@@ -118,7 +119,17 @@ test.each([
   {
     name: "different executable",
     fixture: { bundle: VALID_BUNDLE.replace('"git"', '"powershell"') },
-    error: "The only external command must be git rev-parse --git-path HEAD",
+    error: "The only external program must be git",
+  },
+  {
+    name: "arguments built at the call site",
+    fixture: { bundle: VALID_BUNDLE.replace("args", '["log", "--format=" + format]') },
+    error: "The only external program must be git",
+  },
+  {
+    name: "a second call site",
+    fixture: { bundle: `${VALID_BUNDLE}\nexecFileAsync("git", other, { cwd: folder });` },
+    error: "The only external program must be git",
   },
 ])("rejects $name", async ({ fixture, error }) => {
   const result = await runAudit(fixture);
