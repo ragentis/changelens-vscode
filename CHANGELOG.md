@@ -2,6 +2,19 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0](https://github.com/ragentis/changelens-vscode/compare/v0.1.0...v0.2.0) (2026-08-17)
+
+
+### Added
+
+* **tracking:** attribute Git's own writes instead of reviewing them ([476a24f](https://github.com/ragentis/changelens-vscode/commit/476a24f6c48018b8ba5fd3166889936536969308))
+* **ui:** show the line count and content behind a deletion marker ([6a7fd91](https://github.com/ragentis/changelens-vscode/commit/6a7fd9103e875e10d86d1ec7047cd18d8cc0e523))
+
+
+### Fixed
+
+* **commands:** keep Open File working on a review tab after its changes are accepted ([cae660b](https://github.com/ragentis/changelens-vscode/commit/cae660b4d3ac48a8412f9fda2642dc45b5ae53b7))
+
 ## 0.1.0 (2026-08-15)
 
 First release.
