@@ -64,10 +64,11 @@ export class FileStateReader {
     const stated = await this.stat(uri);
 
     if (stated.kind === "missing") {
-      // An unsaved new buffer is the only content even though no disk file exists.
-      return buffer === undefined || this.filter.exceedsMaxSize(buffer)
-        ? { kind: "missing" }
-        : { kind: "text", text: buffer };
+      // An unsaved buffer is the only content even though no disk file exists. A clean one is what
+      // VS Code keeps open after a deletion, and it must not hide that the file is gone.
+      return doc?.isDirty === true && buffer !== undefined && !this.filter.exceedsMaxSize(buffer)
+        ? { kind: "text", text: buffer }
+        : { kind: "missing" };
     }
 
     if (stated.kind === "unreadable") {

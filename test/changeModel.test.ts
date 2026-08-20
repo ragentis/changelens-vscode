@@ -159,6 +159,30 @@ test("an external create shows up as added and a delete as deleted", async () =>
   expect(model.get(key("a.ts"))?.baselineText).toBe("one\n");
 });
 
+test("a deletion is reported even while a clean editor still shows the file", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  // VS Code keeps the document open after the file is gone, with the text it last loaded.
+  open("a.ts", "one\n");
+
+  await fs.rm(fsPath("a.ts"));
+  await model.handleDiskDelete(uri("a.ts"));
+
+  expect(model.get(key("a.ts"))?.status).toBe("deleted");
+});
+
+test("an unsaved buffer stands in for a deleted file until it is saved or discarded", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+  await type(doc, "one\ntwo\n");
+
+  await fs.rm(fsPath("a.ts"));
+  await model.handleDiskDelete(uri("a.ts"));
+
+  expect(model.files).toEqual([]);
+});
+
 test("an empty file reaches the review when it is created or deleted", async () => {
   await write("a.ts", "");
   await model.initialize();
