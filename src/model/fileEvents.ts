@@ -84,12 +84,16 @@ export class FileEvents {
     if (this.work.defer(uri)) {
       return Promise.resolve();
     }
+    return this.settleMissing(uri, false);
+  }
 
+  /** Settles a path that is gone, whether it was a tracked file or a folder holding some. */
+  private settleMissing(uri: vscode.Uri, silent: boolean): Promise<void> {
     const key = normalizeKey(uri.fsPath);
     if (this.store.has(key) || this.tracked.pending(key)) {
       return this.work.enqueue(key, async () => {
         this.tracked.forgetContent(key);
-        await this.deriver.recompute(uri);
+        await this.deriver.recompute(uri, silent);
       });
     }
 
@@ -402,7 +406,16 @@ export class FileEvents {
       return;
     }
 
-    await this.queuedRecompute(event.uri);
+    // A parked event says only which path moved. A folder that arrived or vanished meanwhile
+    // raised no event for its contents, so those are settled here as the live handlers would.
+    const stated = await this.reader.stat(event.uri);
+    if (stated.kind === "missing") {
+      await this.settleMissing(event.uri, true);
+    } else if (stated.kind === "stat" && stated.isDirectory) {
+      await this.settleFolder(event.uri);
+    } else {
+      await this.queuedRecompute(event.uri);
+    }
   }
 
   /** A silent recompute taking its turn behind whatever else is already queued for the file. */

@@ -116,6 +116,23 @@ function holdCapture(): Gate {
   return { entered: entered.promise, release: held.resolve };
 }
 
+/**
+ * Holds a Git adoption open at its final flush, so an event can be raised while the model is
+ * deferring events and the baseline it will be replayed against already exists.
+ */
+function holdAbsorb(): Gate {
+  const entered = deferred();
+  const held = deferred();
+  const original = store.flush.bind(store);
+  const spy = vi.spyOn(store, "flush").mockImplementation(async () => {
+    spy.mockRestore();
+    entered.resolve();
+    await held.promise;
+    return original();
+  });
+  return { entered: entered.promise, release: held.resolve };
+}
+
 // #region baseline
 
 test("the initial capture leaves no pending changes", async () => {
@@ -1219,6 +1236,66 @@ test("a toggle made during a filter rebuild is not undone by the snapshot it int
 
   expect(model.config.viewMode).toBe("list");
   expect(model.config.reviewMode).toBe("diffEditor");
+});
+
+test("a folder deleted while events are deferred reports its files once they are replayed", async () => {
+  await fs.mkdir(fsPath("src"), { recursive: true });
+  await write(path.join("src", "a.ts"), "one\n");
+  await model.initialize();
+
+  const gate = holdAbsorb();
+  const absorb = model.absorbGitRewrite([uri(path.join("src", "a.ts"))], new Map());
+  await gate.entered;
+
+  await fs.rm(fsPath("src"), { recursive: true });
+  const parked = model.handleDiskDelete(uri("src"));
+  gate.release();
+  await absorb;
+  await parked;
+  await model.drain();
+
+  expect(model.get(key(path.join("src", "a.ts")))?.status).toBe("deleted");
+});
+
+test("a folder that arrives while events are deferred is reviewed once it is replayed", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+
+  const gate = holdAbsorb();
+  const absorb = model.absorbGitRewrite([uri("a.ts")], new Map());
+  await gate.entered;
+
+  // One event for the folder, none for what it brought with it.
+  await fs.mkdir(fsPath("src"), { recursive: true });
+  await write(path.join("src", "b.ts"), "two\n");
+  const parked = model.handleDiskWrite(uri("src"));
+  gate.release();
+  await absorb;
+  await parked;
+  await model.drain();
+
+  expect(model.get(key(path.join("src", "b.ts")))?.status).toBe("added");
+});
+
+test("a file deleted while events are deferred is not kept deleted by an identical recreation", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+
+  const gate = holdAbsorb();
+  const absorb = model.absorbGitRewrite([uri("a.ts")], new Map());
+  await gate.entered;
+
+  await fs.rm(fsPath("a.ts"));
+  const parked = model.handleDiskDelete(uri("a.ts"));
+  gate.release();
+  await absorb;
+  await parked;
+  expect(model.get(key("a.ts"))?.status).toBe("deleted");
+
+  // The same bytes come back; the last disk reading must not make this look like a no-op.
+  await write("a.ts", "one\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  expect(model.files).toEqual([]);
 });
 
 // #endregion
