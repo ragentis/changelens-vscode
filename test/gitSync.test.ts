@@ -32,6 +32,12 @@ let gitSync: GitSync;
 /** Long enough that two edits to it can be merged without conflicting. */
 const APP = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
 
+/**
+ * Every test here spawns real Git a dozen or more times, and one spawn on a Windows CI runner can
+ * take a quarter of a second, which puts the longest of them at the default limit.
+ */
+vi.setConfig({ testTimeout: 30_000 });
+
 beforeEach(async () => {
   // Git canonicalizes temp aliases such as macOS `/var` and Windows 8.3 path segments, and the
   // paths it reports have to match the ones the workspace is opened under.
