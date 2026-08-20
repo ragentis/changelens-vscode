@@ -17,7 +17,7 @@ It works with any agent that writes to workspace files. Review state stays local
 On first activation ChangeLens captures a baseline of every in-scope file. From then on:
 
 - **Writes from outside the editor** — from an agent or another external process — become pending changes you review.
-- **Edits you make in VS Code** are folded into the baseline as you type. Those edits do not appear as pending changes or absorb existing ones nearby.
+- **Edits you make in VS Code** are folded into the baseline as you type. Those edits do not appear as pending changes or absorb existing ones nearby. Folding happens as you type, not when you save, so discarding unsaved edits — closing with *Don't Save*, or *Revert File* — leaves the baseline holding them and shows a change that removes them. Accept it to realign the baseline.
 - **File operations you perform in the editor** — creating, deleting, renaming — are adopted rather than reported.
 
 The baseline lives in the extension's own storage, not in your workspace and not in Git. ChangeLens adds no metadata to your repository, collects no telemetry, and makes no network requests.
@@ -119,6 +119,8 @@ To install a downloaded `.vsix` by hand:
 - Files Git updates inside a submodule are reviewed as external changes. A parent repository's commits name the submodule, not the files in it.
 - A file or folder moved outside the editor is reviewed as a deletion at the old path and an addition at the new one. ChangeLens does not detect renames.
 - If a capture fails at startup, the window is not tracked until it is reloaded.
+- ChangeLens relies on VS Code's file watcher. Paths excluded by `files.watcherExclude` raise no events, so changes there are found only by **ChangeLens: Refresh**.
+- Text is tracked as UTF-8. A file in another encoding is tracked without content from disk, but reads as text while it is open in an editor, so it can move between the two as editors open and close.
 
 ## Security
 
