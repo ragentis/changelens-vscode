@@ -366,6 +366,29 @@ test("typing into a clean editor after a reset is still folded, not reviewed", a
   });
 });
 
+test("an external write reloaded into a clean editor is reviewed even when its disk event is late", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\ntwo\n");
+
+  // VS Code reloads a clean buffer after an external write. Usually the disk event is handled
+  // first; when it is not, the reload must still not pass for something the user typed.
+  await write("a.ts", "one\ntwo\nagent\n");
+  doc.setText("one\ntwo\nagent\n");
+  await model.handleBufferChange(editor.asDocument(doc));
+
+  expect(model.get(key("a.ts"))?.added).toBe(1);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntwo\n",
+    hadBom: false,
+  });
+
+  // The disk event arriving afterwards adds nothing.
+  await model.handleDiskWrite(uri("a.ts"));
+  expect(model.get(key("a.ts"))?.added).toBe(1);
+});
+
 test("saving before the buffer debounce fires still folds the edit into the baseline", async () => {
   await write("a.ts", "one\ntwo\n");
   await model.initialize();

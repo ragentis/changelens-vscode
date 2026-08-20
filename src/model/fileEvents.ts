@@ -156,7 +156,9 @@ export class FileEvents {
     const key = normalizeKey(doc.uri.fsPath);
 
     return this.work.enqueue(key, async () => {
-      if (await this.assimilateBuffer(key, doc.uri, documentText(doc))) {
+      // Read when the work runs: a save landing behind the debounce has already passed through
+      // `handleSave`, so a buffer that is clean here holds nothing the user typed unrecorded.
+      if (await this.assimilateBuffer(key, doc.uri, documentText(doc), !doc.isDirty)) {
         await this.deriver.recompute(doc.uri);
       }
     });
@@ -165,15 +167,29 @@ export class FileEvents {
   /**
    * Folds a user buffer edit into the baseline. The last disk text distinguishes it from an
    * external write; the result lets save avoid a duplicate recompute.
+   *
+   * A `clean` buffer whose text the last disk reading does not know was reloaded by VS Code after
+   * an external write whose own event has not arrived. That is a change to review, so it is
+   * recorded as the disk text rather than rebased into the baseline as if it had been typed.
    */
-  private async assimilateBuffer(key: string, uri: vscode.Uri, next: string): Promise<boolean> {
+  private async assimilateBuffer(
+    key: string,
+    uri: vscode.Uri,
+    next: string,
+    clean = false,
+  ): Promise<boolean> {
     const prev = this.tracked.current(key);
     if (prev === next) {
       return false;
     }
 
-    if (prev !== undefined && textDigest(next) !== this.tracked.disk(key)?.digest) {
-      await this.rebaseOverBufferEdit(key, uri, prev, next);
+    const digest = textDigest(next);
+    if (prev !== undefined && digest !== this.tracked.disk(key)?.digest) {
+      if (clean) {
+        this.tracked.setDisk(key, { digest, hadBom: this.tracked.disk(key)?.hadBom });
+      } else {
+        await this.rebaseOverBufferEdit(key, uri, prev, next);
+      }
     }
 
     this.tracked.setCurrent(key, next);
