@@ -211,7 +211,23 @@ export class BlobStore {
     }
 
     if (removed === files.length) {
-      // Bucket removal is optional; a concurrent write may make it non-empty, so ignore failure.
+      await this.removeStaleBucket(bucketPath, cutoff);
+    }
+  }
+
+  /**
+   * A bucket that listed as empty may have been created a moment ago by a write whose first file
+   * is not there yet; removing it would pull the directory out from under that write. The age
+   * cutoff guards it like every other entry: a directory just made is young, and one this pass
+   * emptied was touched by the removal, so both wait for a later pass. Removal stays optional, and
+   * non-recursive so a file arriving after the listing makes it fail instead of disappearing.
+   */
+  private async removeStaleBucket(bucketPath: string, cutoff: number): Promise<void> {
+    const stale = await fs.stat(bucketPath).then(
+      (stat) => stat.mtimeMs < cutoff,
+      () => false,
+    );
+    if (stale) {
       await fs.rmdir(bucketPath).catch(() => undefined);
     }
   }

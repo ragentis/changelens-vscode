@@ -33,6 +33,28 @@ function referencesNothing(onFirstCheck: () => void): Set<string> {
   return referenced;
 }
 
+test("an empty bucket a write has just created survives the sweep", async () => {
+  const store = new BlobStore(root);
+  await store.ensure();
+  // The moment between a writer's mkdir and its first file: the bucket exists and is empty.
+  await fs.mkdir(path.join(root, "7b"));
+
+  await store.collect(new Set());
+
+  expect((await fs.stat(path.join(root, "7b"))).isDirectory()).toBe(true);
+});
+
+test("an empty bucket nothing has touched for a while is removed", async () => {
+  const store = new BlobStore(root);
+  await store.ensure();
+  await fs.mkdir(path.join(root, "7b"));
+  await fs.utimes(path.join(root, "7b"), new Date(0), new Date(0));
+
+  await store.collect(new Set());
+
+  await expect(fs.stat(path.join(root, "7b"))).rejects.toThrow("ENOENT");
+});
+
 test("a blob adopted while the sweep is removing it is written back", async () => {
   const store = new BlobStore(root);
   await store.ensure();
