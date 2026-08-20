@@ -1379,6 +1379,38 @@ test("reconcile trusts a clean stat but a refresh does not", async () => {
   expect(model.get(key("a.ts"))?.status).toBe("modified");
 });
 
+test("a write landing while a refresh reads the file is not hidden by the stale reading", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+
+  // The refresh has read the old bytes and not yet derived from them when the write lands.
+  const entered = deferred();
+  const held = deferred();
+  const original = editor.workspace.fs.readFile.bind(editor.workspace.fs);
+  let holdNext = true;
+  vi.spyOn(editor.workspace.fs, "readFile").mockImplementation(async (target) => {
+    const bytes = await original(target);
+    if (holdNext && target.fsPath.endsWith("a.ts")) {
+      holdNext = false;
+      entered.resolve();
+      await held.promise;
+    }
+    return bytes;
+  });
+
+  const refresh = model.reconcile(false);
+  await entered.promise;
+  await write("a.ts", "one\nagent\n");
+  const event = model.handleDiskWrite(uri("a.ts"));
+  // Give the event every chance to run ahead of the held derivation; queued correctly it cannot,
+  // and only then is the stale reading released.
+  await Promise.race([event, new Promise((resolve) => setTimeout(resolve, 200))]);
+  held.resolve();
+  await Promise.all([refresh, event]);
+
+  expect(model.get(key("a.ts"))?.hunks.map((hunk) => hunk.currLines)).toEqual([["agent"]]);
+});
+
 test("a file brought into scope by a settings change is baselined, not reported", async () => {
   editor.state.configuration.set("changelens.exclude", ["generated"]);
   await fs.mkdir(fsPath("generated"), { recursive: true });

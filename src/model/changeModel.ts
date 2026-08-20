@@ -298,6 +298,17 @@ export class ChangeModel implements vscode.Disposable {
     return this.exclusive(() => this.runReconcile(trustStat));
   }
 
+  /**
+   * Derives one file behind whatever event work is already queued for it, and ahead of what
+   * arrives next. Deriving directly would let a write landing mid-read be overwritten by the
+   * stale reading, with no later event to put it right.
+   */
+  private queuedRecompute(uri: vscode.Uri): Promise<void> {
+    return this.context.work.enqueue(normalizeKey(uri.fsPath), () =>
+      this.deriver.recompute(uri, true),
+    );
+  }
+
   private async runReconcile(trustStat: boolean): Promise<void> {
     const { store, reader, tracked } = this.context;
     const seen = new Set<string>();
@@ -313,7 +324,7 @@ export class ChangeModel implements vscode.Disposable {
         }
       }
 
-      await this.recompute(uri, true);
+      await this.queuedRecompute(uri);
     }
 
     // Also settle missing or out-of-scope files; `seen` deduplicates the overlapping key sources.
@@ -327,7 +338,7 @@ export class ChangeModel implements vscode.Disposable {
       // Without a baseline or pending review, a tracked record has nothing left to derive.
       const uri = entry ? vscode.Uri.file(entry.path) : this.get(key)?.uri;
       if (uri) {
-        await this.recompute(uri, true);
+        await this.queuedRecompute(uri);
       }
     }
 
