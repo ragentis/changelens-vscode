@@ -482,6 +482,7 @@ function workspaceEvents() {
     documentChanged: new EventEmitter<{ document: TextDocument }>(),
     documentOpened: new EventEmitter<TextDocument>(),
     documentSaved: new EventEmitter<TextDocument>(),
+    documentClosed: new EventEmitter<TextDocument>(),
     filesCreated: new EventEmitter<{ files: readonly Uri[] }>(),
     filesDeleted: new EventEmitter<{ files: readonly Uri[] }>(),
     filesRenamed: new EventEmitter<{ files: readonly FileRename[] }>(),
@@ -856,6 +857,10 @@ export const workspace = {
 
   onDidSaveTextDocument(listener: (doc: TextDocument) => unknown) {
     return state.events.documentSaved.event(listener);
+  },
+
+  onDidCloseTextDocument(listener: (doc: TextDocument) => unknown) {
+    return state.events.documentClosed.event(listener);
   },
 
   onDidCreateFiles(listener: (event: { files: readonly Uri[] }) => unknown) {

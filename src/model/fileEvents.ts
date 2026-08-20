@@ -268,6 +268,19 @@ export class FileEvents {
     }
   }
 
+  /**
+   * Disk is all that is left once a buffer closes. A dirty one that was discarded may have been
+   * standing in for a deletion, or sitting on top of an external write that was left unreviewed
+   * because the buffer outranked it.
+   */
+  handleDocumentClosed(doc: vscode.TextDocument): Promise<void> {
+    if (!this.filter.isTracked(doc.uri) || this.work.defer(doc.uri)) {
+      return Promise.resolve();
+    }
+
+    return this.work.enqueue(normalizeKey(doc.uri.fsPath), () => this.deriver.recompute(doc.uri));
+  }
+
   // ── file operations the editor performs ──────────────────────────────────
 
   /**

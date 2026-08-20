@@ -389,6 +389,42 @@ test("an external write reloaded into a clean editor is reviewed even when its d
   expect(model.get(key("a.ts"))?.added).toBe(1);
 });
 
+test("closing a discarded buffer puts the external write underneath it up for review", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\ntwo\n");
+  await type(doc, "one\ntwo\nmine\n");
+
+  // The unsaved buffer outranks the agent's write, so nothing is reviewed while it is open.
+  await write("a.ts", "one\ntwo\nagent\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  expect(model.files).toEqual([]);
+
+  // Closed without saving: the buffer is gone and the agent's write is what the file holds.
+  editor.closeDocument(doc);
+  await model.handleDocumentClosed(editor.asDocument(doc));
+
+  const file = model.get(key("a.ts"));
+  expect(file?.status).toBe("modified");
+  expect(file?.hunks.map((hunk) => hunk.currLines)).toEqual([["agent"]]);
+});
+
+test("closing a discarded buffer over a deleted file reports the deletion", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+  await type(doc, "one\ntwo\n");
+
+  await fs.rm(fsPath("a.ts"));
+  await model.handleDiskDelete(uri("a.ts"));
+  expect(model.files).toEqual([]);
+
+  editor.closeDocument(doc);
+  await model.handleDocumentClosed(editor.asDocument(doc));
+
+  expect(model.get(key("a.ts"))?.status).toBe("deleted");
+});
+
 test("saving before the buffer debounce fires still folds the edit into the baseline", async () => {
   await write("a.ts", "one\ntwo\n");
   await model.initialize();

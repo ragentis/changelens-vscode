@@ -149,6 +149,17 @@ test("a save is reported at once, without waiting for a debounce", () => {
   expect(save).toHaveBeenCalledTimes(1);
 });
 
+test("a close is reported at once, so what is left on disk is reviewed", () => {
+  const closed = vi.spyOn(model, "handleDocumentClosed").mockResolvedValue();
+  watcher.activate();
+
+  const doc = editor.openDocument(path.join(workspace, "a.ts"), "one\n");
+  editor.closeDocument(doc);
+  editor.state.events.documentClosed.fire(doc);
+
+  expect(closed).toHaveBeenCalledTimes(1);
+});
+
 test("documents already open when the watcher starts are reported", () => {
   const opened = vi.spyOn(model, "handleDocumentOpened").mockReturnValue();
   editor.openDocument(path.join(workspace, "a.ts"), "one\n");

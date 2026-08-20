@@ -70,6 +70,9 @@ export class WorkspaceWatcher implements vscode.Disposable {
       vscode.workspace.onDidSaveTextDocument((doc) =>
         this.dispatch("A file save", () => this.model.handleSave(doc)),
       ),
+      vscode.workspace.onDidCloseTextDocument((doc) =>
+        this.dispatch("A file close", () => this.model.handleDocumentClosed(doc)),
+      ),
       vscode.workspace.onDidCreateFiles((event) =>
         this.dispatch("A file creation", () => this.model.handleEditorCreate(event.files)),
       ),
