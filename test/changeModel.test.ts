@@ -308,6 +308,23 @@ test("a reset takes an unsaved buffer as it stands, not the file behind it", asy
   expect(model.files).toEqual([]);
 });
 
+test("typing into a clean editor after a reset is still folded, not reviewed", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\ntwo\n");
+
+  // The reset forgets what every buffer held; an open one has to be recorded again.
+  await model.captureBaseline(false);
+  await type(doc, "one\ntwo\nthree\n");
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntwo\nthree\n",
+    hadBom: false,
+  });
+});
+
 test("saving before the buffer debounce fires still folds the edit into the baseline", async () => {
   await write("a.ts", "one\ntwo\n");
   await model.initialize();

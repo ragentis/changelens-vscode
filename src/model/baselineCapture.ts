@@ -211,8 +211,10 @@ export class BaselineCapture {
     }
 
     this.tracked.setDisk(key, { digest: textDigest(state.text), hadBom: state.disk?.hadBom });
-    if (buffer !== undefined) {
-      this.tracked.setCurrent(key, buffer);
+    // Clean buffers too: a reset cleared what the model last saw there, and without it the next
+    // keystroke has nothing to be rebased against and is reviewed as an external change.
+    if (doc) {
+      this.tracked.setCurrent(key, documentText(doc));
     }
   }
 
