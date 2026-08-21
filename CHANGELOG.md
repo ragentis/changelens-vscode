@@ -2,6 +2,19 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1](https://github.com/ragentis/changelens-vscode/compare/v0.2.0...v0.2.1) (2026-08-20)
+
+
+### Fixed
+
+* **model:** derive reconciled files behind the event work queued for them ([4e7fbd5](https://github.com/ragentis/changelens-vscode/commit/4e7fbd5ab693953b32a0c902072640bb2e2bf765))
+* **model:** keep telling typing apart from a reload after a baseline reset ([6c002cd](https://github.com/ragentis/changelens-vscode/commit/6c002cd1f8eb6f0817c9bedc99d88029b19a75d7))
+* **model:** never fold a reloaded buffer into the baseline as an edit ([82ce59c](https://github.com/ragentis/changelens-vscode/commit/82ce59c677eef45475236692f90c9353ae3a962c))
+* **model:** report a deletion while a clean editor still shows the file ([bd3c1c5](https://github.com/ragentis/changelens-vscode/commit/bd3c1c5eb87e746b7ab9c4fe81dc256a0fe3eab3))
+* **model:** settle folders and forget content when replaying parked events ([ec13867](https://github.com/ragentis/changelens-vscode/commit/ec1386795acea9822260546612558800e637c2db))
+* **storage:** leave a freshly created blob bucket alone when sweeping ([80f0e62](https://github.com/ragentis/changelens-vscode/commit/80f0e628c78cb0d1204621089ea8580e2f37548a))
+* **tracking:** review what a closed buffer leaves behind on disk ([6b8690d](https://github.com/ragentis/changelens-vscode/commit/6b8690da364cf08bfadba9edd6ddd5f6405125d3))
+
 ## [0.2.0](https://github.com/ragentis/changelens-vscode/compare/v0.1.0...v0.2.0) (2026-08-17)
 
 
