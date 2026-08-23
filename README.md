@@ -17,7 +17,7 @@ It works with any agent that writes to workspace files. Review state stays local
 On first activation ChangeLens captures a baseline of every in-scope file. From then on:
 
 - **Writes from outside the editor** — from an agent or another external process — become pending changes you review.
-- **Edits you make in VS Code** are folded into the baseline as you type. Those edits do not appear as pending changes or absorb existing ones nearby. Folding happens as you type, not when you save, so discarding unsaved edits — closing with _Don't Save_, or _Revert File_ — leaves the baseline holding them and shows a change that removes them. Accept it to realign the baseline.
+- **Edits you make in VS Code** are folded into the baseline as you type. Those edits do not appear as pending changes or absorb existing ones nearby. Discarding unsaved edits — closing with _Don't Save_, or _Revert File_ — folds them back out again. The one exception is a dirty editor restored from a previous window: ChangeLens no longer knows where its edits began, so discarding them shows a change that removes them. Accept it to realign the baseline.
 - **File operations you perform in the editor** — creating, deleting, renaming — are adopted rather than reported.
 
 The baseline lives in the extension's own storage, not in your workspace and not in Git. ChangeLens adds no metadata to your repository, collects no telemetry, and makes no network requests.

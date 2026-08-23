@@ -216,6 +216,10 @@ export class BaselineCapture {
     if (doc) {
       this.tracked.setCurrent(key, documentText(doc));
     }
+    // A baseline taken from a dirty buffer must follow it back to disk if its edits are discarded.
+    if (buffer !== undefined) {
+      this.tracked.setEditedFrom(key, state.text);
+    }
   }
 
   /**

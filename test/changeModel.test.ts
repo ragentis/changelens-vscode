@@ -79,6 +79,27 @@ async function saveWithoutBufferChange(doc: editor.TextDocument, text: string): 
   await model.handleSave(editor.asDocument(doc));
 }
 
+/**
+ * Simulates _Revert File_, or the reload behind _Don't Save_: VS Code reads the file back into
+ * the buffer, which reaches the model as a clean buffer change holding the disk text.
+ */
+async function revert(doc: editor.TextDocument): Promise<void> {
+  doc.setText(await fs.readFile(doc.uri.fsPath, "utf8"));
+  doc.isDirty = false;
+  await model.handleBufferChange(editor.asDocument(doc));
+}
+
+/**
+ * Simulates _Don't Save_ on close, where the close is handled before the reverting buffer change
+ * leaves its debounce.
+ */
+async function closeWithoutSaving(doc: editor.TextDocument): Promise<void> {
+  doc.setText(await fs.readFile(doc.uri.fsPath, "utf8"));
+  editor.closeDocument(doc);
+  await model.handleDocumentClosed(editor.asDocument(doc));
+  await model.handleBufferChange(editor.asDocument(doc));
+}
+
 /** An operation parked mid-flight: `entered` settles once it is reached, `release` lets it go. */
 interface Gate {
   entered: Promise<void>;
@@ -400,13 +421,13 @@ test("closing a discarded buffer puts the external write underneath it up for re
   await model.handleDiskWrite(uri("a.ts"));
   expect(model.files).toEqual([]);
 
-  // Closed without saving: the buffer is gone and the agent's write is what the file holds.
-  editor.closeDocument(doc);
-  await model.handleDocumentClosed(editor.asDocument(doc));
+  // Closed without saving: the buffer is gone and the agent's write is what the file holds. The
+  // discarded line must not be reported as removed alongside it.
+  await closeWithoutSaving(doc);
 
   const file = model.get(key("a.ts"));
   expect(file?.status).toBe("modified");
-  expect(file?.hunks.map((hunk) => hunk.currLines)).toEqual([["agent"]]);
+  expect(file?.hunks.map((hunk) => [hunk.baseLines, hunk.currLines])).toEqual([[[], ["agent"]]]);
 });
 
 test("closing a discarded buffer over a deleted file reports the deletion", async () => {
@@ -419,10 +440,136 @@ test("closing a discarded buffer over a deleted file reports the deletion", asyn
   await model.handleDiskDelete(uri("a.ts"));
   expect(model.files).toEqual([]);
 
+  // There is no file to reload, so the buffer keeps its text until it is closed.
   editor.closeDocument(doc);
   await model.handleDocumentClosed(editor.asDocument(doc));
 
-  expect(model.get(key("a.ts"))?.status).toBe("deleted");
+  const file = model.get(key("a.ts"));
+  expect(file?.status).toBe("deleted");
+  expect(file?.baselineText).toBe("one\n");
+});
+
+test("closing with Don't Save folds the unsaved edits back out of the baseline", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\ntwo\n");
+  await type(doc, "one\nTWO\nthree\n");
+  expect(model.files).toEqual([]);
+
+  await closeWithoutSaving(doc);
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntwo\n",
+    hadBom: false,
+  });
+});
+
+test("reverting a file folds the unsaved edits back out of the baseline", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\ntwo\n");
+  await type(doc, "one\nTWO\n");
+  await type(doc, "one\nTWO\nthree\n");
+
+  await revert(doc);
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntwo\n",
+    hadBom: false,
+  });
+});
+
+test("discarding edits typed around a pending hunk leaves the hunk as it was", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  await write("a.ts", "one\ntwo\nagent\n");
+  await model.handleDiskWrite(uri("a.ts"));
+
+  const doc = open("a.ts", "one\ntwo\nagent\n");
+  await type(doc, "mine\none\ntwo\nagent\n");
+  expect(model.get(key("a.ts"))?.hunks.map((hunk) => hunk.currLines)).toEqual([["agent"]]);
+
+  await revert(doc);
+
+  const file = model.get(key("a.ts"));
+  expect(file?.baselineText).toBe("one\ntwo\n");
+  expect(file?.hunks.map((hunk) => [hunk.baseLines, hunk.currLines])).toEqual([[[], ["agent"]]]);
+});
+
+test("discarding edits reviews the external write that landed underneath them", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\ntwo\n");
+  await type(doc, "mine\none\ntwo\n");
+
+  await write("a.ts", "one\ntwo\nagent\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  expect(model.files).toEqual([]);
+
+  // The reload brings the agent's write into the buffer; only the typed line is the user's.
+  await revert(doc);
+
+  const file = model.get(key("a.ts"));
+  expect(file?.baselineText).toBe("one\ntwo\n");
+  expect(file?.hunks.map((hunk) => [hunk.baseLines, hunk.currLines])).toEqual([[[], ["agent"]]]);
+});
+
+test("discarding a hunk revert the user typed over puts the hunk back up for review", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  await write("a.ts", "one\ntwo\nagent\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  const signature = must(model.get(key("a.ts"))?.signatures[0], "the hunk's signature");
+
+  const doc = open("a.ts", "one\ntwo\nagent\n");
+  expect(await model.revertHunk(key("a.ts"), signature)).toBe(true);
+  expect(model.files).toEqual([]);
+  await type(doc, "one\nTWO\n");
+
+  await revert(doc);
+
+  const file = model.get(key("a.ts"));
+  expect(file?.baselineText).toBe("one\ntwo\n");
+  expect(file?.hunks.map((hunk) => [hunk.baseLines, hunk.currLines])).toEqual([[[], ["agent"]]]);
+});
+
+test("a baseline reset taken from a dirty buffer follows a discard back to disk", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+  await type(doc, "one\ntwo\n");
+
+  await model.captureBaseline(false);
+  await revert(doc);
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\n",
+    hadBom: false,
+  });
+});
+
+test("typing back to the saved text and saving leaves nothing in the baseline", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\ntwo\n");
+  await type(doc, "one\ntwo\nthree\n");
+
+  // Retyped by hand rather than undone, so the buffer stays dirty at the saved text.
+  await type(doc, "one\ntwo\n");
+  await saveWithoutBufferChange(doc, "one\ntwo\n");
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntwo\n",
+    hadBom: false,
+  });
 });
 
 test("saving before the buffer debounce fires still folds the edit into the baseline", async () => {

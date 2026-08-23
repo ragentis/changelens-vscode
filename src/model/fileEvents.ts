@@ -165,12 +165,13 @@ export class FileEvents {
   }
 
   /**
-   * Folds a user buffer edit into the baseline. The last disk text distinguishes it from an
-   * external write; the result lets save avoid a duplicate recompute.
+   * Folds a user buffer edit into the baseline, or folds discarded edits back out of it. The
+   * result says whether anything moved, which lets save avoid a duplicate recompute.
    *
-   * A `clean` buffer whose text the last disk reading does not know was reloaded by VS Code after
-   * an external write whose own event has not arrived. That is a change to review, so it is
-   * recorded as the disk text rather than rebased into the baseline as if it had been typed.
+   * A dirty buffer was typed in. A `clean` one has either discarded the unsaved edits it held,
+   * or was reloaded by VS Code after an external write. A reloaded text the last disk reading does
+   * not know belongs to a write whose own event has not arrived; it is a change to review, so it
+   * is recorded as the disk text rather than rebased into the baseline as if it had been typed.
    */
   private async assimilateBuffer(
     key: string,
@@ -178,17 +179,34 @@ export class FileEvents {
     next: string,
     clean = false,
   ): Promise<boolean> {
-    const prev = this.tracked.current(key);
-    if (prev === next) {
+    let prev = this.tracked.current(key);
+
+    const editedFrom = clean ? this.tracked.editedFrom(key) : undefined;
+    if (editedFrom !== undefined) {
+      this.tracked.clearEditedFrom(key);
+      if (prev !== undefined) {
+        await this.rebaseOverBufferEdit(key, uri, prev, editedFrom);
+      }
+      // VS Code discards by reloading the file. A buffer still holding its discarded text is one
+      // it could not reload, as over a deleted file, and says nothing new about disk.
+      if (next === prev) {
+        return true;
+      }
+      // Whatever separates the reloaded text from where the edits began was written externally.
+      prev = editedFrom;
+    } else if (prev === next) {
       return false;
     }
 
-    const digest = textDigest(next);
-    if (prev !== undefined && digest !== this.tracked.disk(key)?.digest) {
+    if (prev !== undefined && prev !== next) {
       if (clean) {
-        this.tracked.setDisk(key, { digest, hadBom: this.tracked.disk(key)?.hadBom });
+        const digest = textDigest(next);
+        if (digest !== this.tracked.disk(key)?.digest) {
+          this.tracked.setDisk(key, { digest, hadBom: this.tracked.disk(key)?.hadBom });
+        }
       } else {
         await this.rebaseOverBufferEdit(key, uri, prev, next);
+        this.tracked.setEditedFromIfUnknown(key, prev);
       }
     }
 
@@ -247,6 +265,7 @@ export class FileEvents {
         digest: textDigest(saved),
         hadBom: this.tracked.disk(key)?.hadBom,
       });
+      this.tracked.clearEditedFrom(key);
       if (folded) {
         await this.deriver.recompute(doc.uri);
       }
@@ -269,16 +288,26 @@ export class FileEvents {
   }
 
   /**
-   * Disk is all that is left once a buffer closes. A dirty one that was discarded may have been
-   * standing in for a deletion, or sitting on top of an external write that was left unreviewed
-   * because the buffer outranked it.
+   * Disk is all that is left once a buffer closes. A dirty one that was discarded leaves its edits
+   * folded into the baseline, and may have been standing in for a deletion, or sitting on top of
+   * an external write that was left unreviewed because the buffer outranked it.
+   *
+   * The buffer change that discarded the edits is still waiting in its debounce, so the discard
+   * is settled here rather than reported as a change until that fires. VS Code keeps a closed
+   * document readable and never dirty.
    */
   handleDocumentClosed(doc: vscode.TextDocument): Promise<void> {
     if (!this.filter.isTracked(doc.uri) || this.work.defer(doc.uri)) {
       return Promise.resolve();
     }
 
-    return this.work.enqueue(normalizeKey(doc.uri.fsPath), () => this.deriver.recompute(doc.uri));
+    const key = normalizeKey(doc.uri.fsPath);
+    const text = documentText(doc);
+
+    return this.work.enqueue(key, async () => {
+      await this.assimilateBuffer(key, doc.uri, text, true);
+      await this.deriver.recompute(doc.uri);
+    });
   }
 
   // ── file operations the editor performs ──────────────────────────────────

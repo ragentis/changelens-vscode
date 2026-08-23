@@ -14,11 +14,16 @@ interface TrackedFile {
   /** Text as the model last saw it, whether that came from an editor buffer or from disk. */
   current?: string;
   disk?: DiskText;
+  /**
+   * The clean text a run of unsaved edits started from. Present only while the baseline holds
+   * edits the buffer could still discard, so that a discard can fold them back out.
+   */
+  editedFrom?: string;
   /** The reviewable change, present only while the file has one. */
   pending?: PendingFile;
 }
 
-/** Stores a record only while it still contains current, disk, or pending state. */
+/** Stores a record only while it still contains some state. */
 export class TrackedFiles {
   private readonly records = new Map<string, TrackedFile>();
   /**
@@ -41,6 +46,10 @@ export class TrackedFiles {
 
   disk(key: string): DiskText | undefined {
     return this.records.get(key)?.disk;
+  }
+
+  editedFrom(key: string): string | undefined {
+    return this.records.get(key)?.editedFrom;
   }
 
   /** Every pending review, in a stable order the UI can render directly. */
@@ -81,6 +90,26 @@ export class TrackedFiles {
     this.record(key).disk = disk;
   }
 
+  setEditedFrom(key: string, text: string): void {
+    this.record(key).editedFrom = text;
+  }
+
+  /** Records where a run of unsaved edits began, unless an earlier edit of the run already did. */
+  setEditedFromIfUnknown(key: string, text: string): void {
+    const record = this.record(key);
+    record.editedFrom ??= text;
+  }
+
+  /** The unsaved edits were saved or discarded, so there is nothing left to fold back out. */
+  clearEditedFrom(key: string): void {
+    const record = this.records.get(key);
+    if (!record) {
+      return;
+    }
+    delete record.editedFrom;
+    this.dropIfEmpty(key, record);
+  }
+
   setPending(key: string, pending: PendingFile): void {
     this.record(key).pending = pending;
     this.sorted = undefined;
@@ -94,13 +123,13 @@ export class TrackedFiles {
     }
     delete record.pending;
     this.sorted = undefined;
-
-    if (record.current === undefined && record.disk === undefined) {
-      this.records.delete(key);
-    }
+    this.dropIfEmpty(key, record);
   }
 
-  /** Forgets what the file contained without discarding a review that still stands. */
+  /**
+   * Forgets what the file contained without discarding a review that still stands. Unsaved edits
+   * belong to the buffer rather than the file, so where they began is kept for their discard.
+   */
   forgetContent(key: string): void {
     const record = this.records.get(key);
     if (!record) {
@@ -108,10 +137,7 @@ export class TrackedFiles {
     }
     delete record.current;
     delete record.disk;
-
-    if (record.pending === undefined) {
-      this.records.delete(key);
-    }
+    this.dropIfEmpty(key, record);
   }
 
   /** Carries a record to a new key. The review is left behind: it is re-derived under the new name. */
@@ -136,6 +162,17 @@ export class TrackedFiles {
   clear(): void {
     this.records.clear();
     this.sorted = undefined;
+  }
+
+  private dropIfEmpty(key: string, record: TrackedFile): void {
+    if (
+      record.current === undefined &&
+      record.disk === undefined &&
+      record.editedFrom === undefined &&
+      record.pending === undefined
+    ) {
+      this.records.delete(key);
+    }
   }
 
   private record(key: string): TrackedFile {

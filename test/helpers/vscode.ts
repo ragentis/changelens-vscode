@@ -654,8 +654,10 @@ export function openDocument(
   return doc;
 }
 
+/** Closes as VS Code does: the text stays readable, and a closed document is never dirty. */
 export function closeDocument(doc: TextDocument): void {
   doc.isClosed = true;
+  doc.isDirty = false;
   state.documents = state.documents.filter((open) => open !== doc);
 }
 
