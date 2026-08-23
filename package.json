@@ -2,7 +2,7 @@
   "name": "changelens",
   "displayName": "ChangeLens",
   "description": "Review changes made by AI agents or any external process, per hunk, independent of Git.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "ragentis",
   "license": "MIT",
   "private": true,
