@@ -2,6 +2,13 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2](https://github.com/ragentis/changelens-vscode/compare/v0.2.1...v0.2.2) (2026-08-23)
+
+
+### Fixed
+
+* **model:** fold discarded edits back out of the baseline ([b1ca999](https://github.com/ragentis/changelens-vscode/commit/b1ca999de32ca4d76c305be7cb6b38c219eaa4cd))
+
 ## [0.2.1](https://github.com/ragentis/changelens-vscode/compare/v0.2.0...v0.2.1) (2026-08-20)
 
 
