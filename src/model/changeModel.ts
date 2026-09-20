@@ -87,8 +87,8 @@ export class ChangeModel implements vscode.Disposable {
     return this.events.handleSave(doc);
   }
 
-  handleDocumentOpened(doc: vscode.TextDocument): void {
-    this.events.handleDocumentOpened(doc);
+  handleDocumentOpened(doc: vscode.TextDocument): Promise<void> {
+    return this.events.handleDocumentOpened(doc);
   }
 
   handleDocumentClosed(doc: vscode.TextDocument): Promise<void> {

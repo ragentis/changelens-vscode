@@ -11,8 +11,11 @@ export type FileState =
   | { kind: "missing" }
   /** The file is there but could not be read: a lock or a permission problem, not a deletion. */
   | { kind: "unreadable"; stat: DiskStat }
-  /** `disk` is absent when the text came from an editor buffer, which has neither stat nor BOM. */
-  | { kind: "text"; text: string; disk?: { hadBom: boolean; stat: DiskStat } }
+  /**
+   * `disk` is absent when the text came from an editor buffer, which has neither stat nor BOM.
+   * `unsaved` marks a dirty buffer, whose text may hold keystrokes no buffer event has reported yet.
+   */
+  | { kind: "text"; text: string; unsaved?: boolean; disk?: { hadBom: boolean; stat: DiskStat } }
   | { kind: "opaque"; reason: OpaqueKind; stat: DiskStat };
 
 export type TextState = Extract<FileState, { kind: "text" }>;
@@ -60,14 +63,15 @@ export class FileStateReader {
   async read(uri: vscode.Uri, fromDiskOnly = false): Promise<FileState> {
     const doc = fromDiskOnly ? undefined : openDocument(uri);
     const buffer = doc ? documentText(doc) : undefined;
+    const unsaved = doc?.isDirty === true;
     // Stat even with a buffer because the disk form may also exceed the storage limit.
     const stated = await this.stat(uri);
 
     if (stated.kind === "missing") {
       // An unsaved buffer is the only content even though no disk file exists. A clean one is what
       // VS Code keeps open after a deletion, and it must not hide that the file is gone.
-      return doc?.isDirty === true && buffer !== undefined && !this.filter.exceedsMaxSize(buffer)
-        ? { kind: "text", text: buffer }
+      return unsaved && buffer !== undefined && !this.filter.exceedsMaxSize(buffer)
+        ? { kind: "text", text: buffer, unsaved }
         : { kind: "missing" };
     }
 
@@ -92,7 +96,7 @@ export class FileStateReader {
     }
 
     if (buffer !== undefined) {
-      return { kind: "text", text: buffer };
+      return { kind: "text", text: buffer, unsaved };
     }
 
     try {

@@ -8,7 +8,7 @@ import type { WorkspaceFilter } from "../tracking/filter";
 import type { BaselineCapture } from "./baselineCapture";
 import { documentText, openDocument } from "./documents";
 import type { FileStateReader } from "./fileState";
-import type { DeferredEvent, FileWorkQueue } from "./fileWork";
+import type { BufferState, DeferredEvent, FileWorkQueue } from "./fileWork";
 import type { ModelContext } from "./modelContext";
 import type { PendingDeriver } from "./pendingDeriver";
 import type { TrackedFiles } from "./trackedFiles";
@@ -149,19 +149,46 @@ export class FileEvents {
 
   /** Folds VS Code buffer edits into the baseline instead of reporting them as hunks. */
   handleBufferChange(doc: vscode.TextDocument): Promise<void> {
-    if (!this.filter.isTracked(doc.uri) || this.work.defer(doc.uri)) {
+    if (!this.filter.isTracked(doc.uri)) {
+      return Promise.resolve();
+    }
+
+    // Text and dirty state are read together, now. A buffer that is clean here was saved before
+    // this event, so `handleSave` is already queued ahead. Read when the work runs, a save landing
+    // while it waited would make typed text look like a reload.
+    const buffer: BufferState = {
+      text: documentText(doc),
+      state: doc.isDirty ? "dirty" : "clean",
+    };
+    if (this.work.deferBuffer(doc.uri, buffer)) {
       return Promise.resolve();
     }
 
     const key = normalizeKey(doc.uri.fsPath);
 
     return this.work.enqueue(key, async () => {
-      // Read when the work runs: a save landing behind the debounce has already passed through
-      // `handleSave`, so a buffer that is clean here holds nothing the user typed unrecorded.
-      if (await this.assimilateBuffer(key, doc.uri, documentText(doc), !doc.isDirty)) {
+      if (await this.foldBuffer(key, doc.uri, buffer)) {
         await this.deriver.recompute(doc.uri);
       }
     });
+  }
+
+  /**
+   * Folds one reported buffer state; the result says whether anything moved. A save folds any edit
+   * still waiting in the buffer debounce first. Disk must move last, or `assimilateBuffer` would
+   * mistake the user's edit for already-known disk content.
+   */
+  private async foldBuffer(key: string, uri: vscode.Uri, buffer: BufferState): Promise<boolean> {
+    const moved = await this.assimilateBuffer(key, uri, buffer.text, buffer.state === "clean");
+    if (buffer.state === "saved") {
+      // VS Code preserves the existing BOM on save, so the last disk reading remains valid.
+      this.tracked.setDisk(key, {
+        digest: textDigest(buffer.text),
+        hadBom: this.tracked.disk(key)?.hadBom,
+      });
+      this.tracked.clearEditedFrom(key);
+    }
+    return moved;
   }
 
   /**
@@ -245,46 +272,71 @@ export class FileEvents {
     await this.store.setText(uri.fsPath, rebased, baseline.hadBom);
   }
 
-  /**
-   * Folds any edit still waiting in the buffer debounce before recording a save. Disk must move
-   * last, or `assimilateBuffer` would mistake the user's edit for already-known disk content.
-   */
   handleSave(doc: vscode.TextDocument): Promise<void> {
-    if (!this.filter.isTracked(doc.uri) || this.work.defer(doc.uri)) {
+    if (!this.filter.isTracked(doc.uri)) {
+      return Promise.resolve();
+    }
+
+    // Snapshot now: later keystrokes waiting behind this save have not reached disk.
+    const buffer: BufferState = { text: documentText(doc), state: "saved" };
+    if (this.work.deferBuffer(doc.uri, buffer)) {
       return Promise.resolve();
     }
 
     const key = normalizeKey(doc.uri.fsPath);
-    // Snapshot now: later keystrokes waiting behind this save have not reached disk.
-    const saved = documentText(doc);
 
     return this.work.enqueue(key, async () => {
-      const folded = await this.assimilateBuffer(key, doc.uri, saved);
-      // VS Code preserves the existing BOM on save, so the last disk reading remains valid.
-      this.tracked.setDisk(key, {
-        digest: textDigest(saved),
-        hadBom: this.tracked.disk(key)?.hadBom,
-      });
-      this.tracked.clearEditedFrom(key);
-      if (folded) {
+      if (await this.foldBuffer(key, doc.uri, buffer)) {
         await this.deriver.recompute(doc.uri);
       }
     });
   }
 
-  /** Open only records content already in hand, so it needs no queue. */
-  handleDocumentOpened(doc: vscode.TextDocument): void {
+  /** A clean open only records content already in hand, so it needs no queue. */
+  handleDocumentOpened(doc: vscode.TextDocument): Promise<void> {
     if (!this.filter.isTracked(doc.uri)) {
-      return;
+      return Promise.resolve();
     }
 
     const key = normalizeKey(doc.uri.fsPath);
     const text = documentText(doc);
 
+    // Unsaved text no buffer event reported: restored by hot exit, or typed before the watcher
+    // started listening.
+    if (doc.isDirty && this.tracked.editedFrom(key) === undefined) {
+      if (this.work.deferBuffer(doc.uri, { text, state: "dirty" })) {
+        return Promise.resolve();
+      }
+      return this.work.enqueue(key, () => this.settleUnsavedOpen(key, doc.uri, text));
+    }
+
     this.tracked.setCurrentIfUnknown(key, text);
     if (!doc.isDirty && this.tracked.disk(key) === undefined) {
       this.tracked.setDisk(key, { digest: textDigest(text), hadBom: undefined });
     }
+    return Promise.resolve();
+  }
+
+  /**
+   * What separates a dirty buffer from its file was typed in the editor, so it is folded while the
+   * baseline still matches the file. A baseline that differs from the file is left alone: it
+   * already holds the edits, a pending change, or a revert left unsaved, and nothing says which.
+   * Folding into it could duplicate lines, and folding back out of it could accept a change.
+   */
+  private async settleUnsavedOpen(key: string, uri: vscode.Uri, text: string): Promise<void> {
+    const state = await this.reader.read(uri, true);
+    if (state.kind === "text") {
+      this.tracked.setDisk(key, { digest: textDigest(state.text), hadBom: state.disk?.hadBom });
+
+      const baseline = await this.store.readBaseline(key);
+      if (baseline.kind === "text" && baseline.text === state.text) {
+        await this.rebaseOverBufferEdit(key, uri, state.text, text);
+        this.tracked.setEditedFromIfUnknown(key, state.text);
+      }
+    }
+
+    this.tracked.setCurrent(key, text);
+    await this.deriver.recompute(uri);
   }
 
   /**
@@ -297,15 +349,19 @@ export class FileEvents {
    * document readable and never dirty.
    */
   handleDocumentClosed(doc: vscode.TextDocument): Promise<void> {
-    if (!this.filter.isTracked(doc.uri) || this.work.defer(doc.uri)) {
+    if (!this.filter.isTracked(doc.uri)) {
+      return Promise.resolve();
+    }
+
+    const buffer: BufferState = { text: documentText(doc), state: "clean" };
+    if (this.work.deferBuffer(doc.uri, buffer)) {
       return Promise.resolve();
     }
 
     const key = normalizeKey(doc.uri.fsPath);
-    const text = documentText(doc);
 
     return this.work.enqueue(key, async () => {
-      await this.assimilateBuffer(key, doc.uri, text, true);
+      await this.foldBuffer(key, doc.uri, buffer);
       await this.deriver.recompute(doc.uri);
     });
   }
@@ -462,6 +518,16 @@ export class FileEvents {
     if (event.kind === "adopt" && this.filter.isTracked(event.uri)) {
       await this.adopt(event.uri);
       return;
+    }
+
+    const buffers = event.buffers;
+    if (buffers) {
+      const key = normalizeKey(event.uri.fsPath);
+      await this.work.enqueue(key, async () => {
+        for (const buffer of buffers) {
+          await this.foldBuffer(key, event.uri, buffer);
+        }
+      });
     }
 
     // A parked event says only which path moved. A folder that arrived or vanished meanwhile

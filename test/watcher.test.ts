@@ -161,7 +161,7 @@ test("a close is reported at once, so what is left on disk is reviewed", () => {
 });
 
 test("documents already open when the watcher starts are reported", () => {
-  const opened = vi.spyOn(model, "handleDocumentOpened").mockReturnValue();
+  const opened = vi.spyOn(model, "handleDocumentOpened").mockResolvedValue();
   editor.openDocument(path.join(workspace, "a.ts"), "one\n");
   editor.openDocument(path.join(workspace, "b.ts"), "two\n");
 

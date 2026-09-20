@@ -5,7 +5,21 @@ import { normalizeKey } from "../core/paths";
  * Capture replay intent. `adopt` and `forget` preserve editor file-operation semantics that a
  * plain recompute would lose, such as a new file reappearing as an external addition.
  */
-export type DeferredEvent = { uri: vscode.Uri; kind: "recompute" | "adopt" | "forget" };
+export type DeferredEvent = {
+  uri: vscode.Uri;
+  kind: "recompute" | "adopt" | "forget";
+  /** Buffer states the editor reported meanwhile, in arrival order. */
+  buffers?: BufferState[];
+};
+
+/**
+ * What an editor buffer held when its event arrived. `dirty` text was typed, `saved` text was
+ * typed and written by the editor, and `clean` text was discarded to or reloaded from disk.
+ */
+export interface BufferState {
+  text: string;
+  state: "dirty" | "clean" | "saved";
+}
 
 /**
  * Serializes per-file work and defers events during capture. Queue state stays separate from file
@@ -83,6 +97,27 @@ export class FileWorkQueue {
     if (kind !== "recompute" || !this.deferred.has(key)) {
       this.deferred.set(key, { uri, kind });
     }
+    return true;
+  }
+
+  /**
+   * Parks a buffer state with its path. A plain recompute on replay would review the user's own
+   * edit as an external change, so the state is kept to be folded the way its live event would.
+   */
+  deferBuffer(uri: vscode.Uri, buffer: BufferState): boolean {
+    if (!this.deferred) {
+      return false;
+    }
+
+    const key = normalizeKey(uri.fsPath);
+    const parked = this.deferred.get(key) ?? { uri, kind: "recompute" };
+    const buffers = parked.buffers ?? [];
+    // Consecutive unsaved states collapse into the last, as a longer debounce would have done.
+    if (buffer.state === "dirty" && buffers.at(-1)?.state === "dirty") {
+      buffers.pop();
+    }
+    buffers.push(buffer);
+    this.deferred.set(key, { ...parked, buffers });
     return true;
   }
 }

@@ -109,7 +109,13 @@ export class PendingDeriver {
     state: TextState,
     baseline: BaselineRead,
   ): Promise<void> {
-    this.tracked.setCurrent(key, state.text);
+    if (state.unsaved) {
+      // Buffer edits are rebased from the last text their events reported. Recording keystrokes
+      // that are still in the debounce would leave their own event with nothing to fold.
+      this.tracked.setCurrentIfUnknown(key, state.text);
+    } else {
+      this.tracked.setCurrent(key, state.text);
+    }
     // Open documents hide the BOM, so fall back to the last disk reading.
     const currentHadBom = state.disk?.hadBom ?? this.tracked.disk(key)?.hadBom;
 

@@ -56,7 +56,8 @@ async function readDisk(name: string): Promise<string> {
 /** Opens a buffer over a file and tells the model about it, as the editor would. */
 function open(name: string, text: string): editor.TextDocument {
   const doc = editor.openDocument(fsPath(name), text);
-  model.handleDocumentOpened(editor.asDocument(doc));
+  // A clean open is recorded before the call returns; only a dirty one queues work.
+  void model.handleDocumentOpened(editor.asDocument(doc));
   return doc;
 }
 
@@ -356,7 +357,7 @@ test("a reset takes an unsaved buffer as it stands, not the file behind it", asy
   await model.initialize();
 
   const doc = editor.openDocument(fsPath("a.ts"), "one\nunsaved\n", true);
-  model.handleDocumentOpened(editor.asDocument(doc));
+  await model.handleDocumentOpened(editor.asDocument(doc));
   await model.captureBaseline(false);
 
   expect(await store.readBaseline(key("a.ts"))).toEqual({
@@ -610,6 +611,135 @@ test("saving before the buffer debounce fires does not swallow a pending externa
   expect(file?.hunks[0]?.currLines).toEqual(["three"]);
 });
 
+test("a keystroke landing while the previous edit is being folded is folded by its own event", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+
+  // The next keystroke arrives while the fold is writing the baseline, ahead of the derivation.
+  const original = store.setText.bind(store);
+  vi.spyOn(store, "setText").mockImplementationOnce((...args) => {
+    doc.setText("one\ntwo\nthree\n");
+    return original(...args);
+  });
+  await type(doc, "one\ntwo\n");
+  await model.handleBufferChange(editor.asDocument(doc));
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntwo\nthree\n",
+    hadBom: false,
+  });
+});
+
+test("a save landing while the buffer change waits its turn still folds the edit", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+
+  // Slow work holds the file's queue: it has read the old bytes and not yet finished with them.
+  const entered = deferred();
+  const held = deferred();
+  const original = editor.workspace.fs.readFile.bind(editor.workspace.fs);
+  let holdNext = true;
+  vi.spyOn(editor.workspace.fs, "readFile").mockImplementation(async (target) => {
+    const bytes = await original(target);
+    if (holdNext && target.fsPath.endsWith("a.ts")) {
+      holdNext = false;
+      entered.resolve();
+      await held.promise;
+    }
+    return bytes;
+  });
+  const slow = model.handleDiskWrite(uri("a.ts"));
+  await entered.promise;
+
+  // The debounce fires on a dirty buffer, but the save lands before the queued work runs.
+  doc.setText("one\ntyped\n");
+  doc.isDirty = true;
+  const change = model.handleBufferChange(editor.asDocument(doc));
+  await fs.writeFile(fsPath("a.ts"), "one\ntyped\n", "utf8");
+  doc.isDirty = false;
+  const save = model.handleSave(editor.asDocument(doc));
+  held.resolve();
+  await Promise.all([slow, change, save]);
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntyped\n",
+    hadBom: false,
+  });
+});
+
+test("an edit typed before the watcher started is not reported by the first scan", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  await store.flush();
+  model.dispose();
+
+  // The next window: the user is already typing while the baseline loads and nothing listens yet.
+  const doc = editor.openDocument(fsPath("a.ts"), "one\ntwo\nthree\n", true);
+  store = new BaselineStore(path.join(root, "state"));
+  model = new ChangeModel(store);
+  await model.initialize();
+  // What activation does once the model is ready; the watcher does not wait for the open.
+  const opened = model.handleDocumentOpened(editor.asDocument(doc));
+  await model.reconcile(false);
+  await opened;
+
+  expect(model.files).toEqual([]);
+});
+
+test("discarding an unsaved revert restored into the next window does not accept the change", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  await write("a.ts", "one\ntwo\nagent\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  open("a.ts", "one\ntwo\nagent\n");
+  expect(await model.revertFile(key("a.ts"))).toBe(true);
+  await store.flush();
+  model.dispose();
+  editor.reset();
+  editor.setWorkspaceFolders([workspace]);
+
+  // Hot exit brings the reverted buffer back over a file that still holds the agent's write.
+  const doc = editor.openDocument(fsPath("a.ts"), "one\ntwo\n", true);
+  store = new BaselineStore(path.join(root, "state"));
+  model = new ChangeModel(store);
+  await model.initialize();
+  await model.handleDocumentOpened(editor.asDocument(doc));
+  expect(model.files).toEqual([]);
+
+  await revert(doc);
+
+  expect(model.get(key("a.ts"))?.hunks.map((hunk) => hunk.currLines)).toEqual([["agent"]]);
+});
+
+test("restored unsaved edits are not folded twice next to a pending external change", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  await write("a.ts", "one\ntwo\nagent\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  await type(open("a.ts", "one\ntwo\nagent\n"), "one\nmine\ntwo\nagent\n");
+  await store.flush();
+  model.dispose();
+  editor.reset();
+  editor.setWorkspaceFolders([workspace]);
+
+  const doc = editor.openDocument(fsPath("a.ts"), "one\nmine\ntwo\nagent\n", true);
+  store = new BaselineStore(path.join(root, "state"));
+  model = new ChangeModel(store);
+  await model.initialize();
+  await model.handleDocumentOpened(editor.asDocument(doc));
+  await model.reconcile(false);
+
+  const file = model.get(key("a.ts"));
+  expect(file?.baselineText).toBe("one\nmine\ntwo\n");
+  expect(file?.hunks.map((hunk) => hunk.currLines)).toEqual([["agent"]]);
+});
+
 test("a review document never stands in for the file it is reviewing", async () => {
   await write("a.ts", "one\n");
   await model.initialize();
@@ -738,6 +868,24 @@ test("reverting a modified file restores the whole baseline", async () => {
   expect(await model.revertFile(key("a.ts"))).toBe(true);
 
   expect(model.files).toEqual([]);
+});
+
+test("the buffer change a file revert raises is not folded as typing", async () => {
+  await write("a.ts", "one\ntwo\nthree\n");
+  await model.initialize();
+
+  await write("a.ts", "one\nthree\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  const doc = open("a.ts", "one\nthree\n");
+  expect(await model.revertFile(key("a.ts"))).toBe(true);
+  await model.handleBufferChange(editor.asDocument(doc));
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\ntwo\nthree\n",
+    hadBom: false,
+  });
 });
 
 test("reverting an added file deletes it from disk", async () => {
@@ -1483,6 +1631,91 @@ test("a folder that arrives while events are deferred is reviewed once it is rep
   expect(model.get(key(path.join("src", "b.ts")))?.status).toBe("added");
 });
 
+test("an edit typed while events are deferred is folded once it is replayed", async () => {
+  await write("a.ts", "one\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+
+  const gate = holdAbsorb();
+  const absorb = model.absorbGitRewrite([uri("b.ts")], new Map());
+  await gate.entered;
+
+  await type(doc, "one\ntyped\n");
+  gate.release();
+  await absorb;
+  await model.drain();
+
+  expect(model.files).toEqual([]);
+});
+
+test("a save made while events are deferred is folded once it is replayed", async () => {
+  await write("a.ts", "one\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+
+  const gate = holdAbsorb();
+  const absorb = model.absorbGitRewrite([uri("b.ts")], new Map());
+  await gate.entered;
+
+  await saveWithoutBufferChange(doc, "one\ntyped\n");
+  gate.release();
+  await absorb;
+  await model.drain();
+
+  expect(model.files).toEqual([]);
+});
+
+test("edits typed after a save made while events are deferred are discarded back to that save", async () => {
+  await write("a.ts", "one\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  const doc = open("a.ts", "one\n");
+
+  const gate = holdAbsorb();
+  const absorb = model.absorbGitRewrite([uri("b.ts")], new Map());
+  await gate.entered;
+
+  await saveWithoutBufferChange(doc, "one\nsaved\n");
+  await type(doc, "one\nsaved\nunsaved\n");
+  gate.release();
+  await absorb;
+  await model.drain();
+  expect(model.files).toEqual([]);
+
+  await revert(doc);
+
+  expect(model.files).toEqual([]);
+  expect(await store.readBaseline(key("a.ts"))).toEqual({
+    kind: "text",
+    text: "one\nsaved\n",
+    hadBom: false,
+  });
+});
+
+test("an edit typed while events are deferred does not swallow a pending external change", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  await write("a.ts", "one\ntwo\nagent\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  const doc = open("a.ts", "one\ntwo\nagent\n");
+
+  const gate = holdAbsorb();
+  const absorb = model.absorbGitRewrite([uri("b.ts")], new Map());
+  await gate.entered;
+
+  await type(doc, "ONE\ntwo\nagent\n");
+  gate.release();
+  await absorb;
+  await model.drain();
+
+  const file = model.get(key("a.ts"));
+  expect(file?.baselineText).toBe("ONE\ntwo\n");
+  expect(file?.hunks.map((hunk) => hunk.currLines)).toEqual([["agent"]]);
+});
+
 test("a file deleted while events are deferred is not kept deleted by an identical recreation", async () => {
   await write("a.ts", "one\n");
   await model.initialize();
@@ -2061,7 +2294,7 @@ test("a file the user has created but not saved is still compared as text", asyn
 
   // Nothing on disk to stat, so the buffer is the only version there is.
   const doc = editor.openDocument(fsPath("fresh.ts"), "unsaved\n", true);
-  model.handleDocumentOpened(editor.asDocument(doc));
+  await model.handleDocumentOpened(editor.asDocument(doc));
   await model.recompute(uri("fresh.ts"));
 
   expect(model.get(key("fresh.ts"))?.status).toBe("added");

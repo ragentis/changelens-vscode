@@ -130,6 +130,7 @@ export class ReviewActions {
     }
 
     const edit = new vscode.WorkspaceEdit();
+    let replaced: vscode.TextDocument | undefined;
     if (file.opaqueReason) {
       if (file.status !== "added" || !file.currentStat) {
         return false;
@@ -163,11 +164,16 @@ export class ReviewActions {
         edit.deleteFile(file.uri, { ignoreIfNotExists: true });
       } else {
         edit.replace(file.uri, wholeRange(doc), file.baselineText);
+        replaced = doc;
       }
     }
 
     const applied = await vscode.workspace.applyEdit(edit);
     if (applied) {
+      if (replaced) {
+        // The revert is not typing, so its buffer change must find nothing left to fold.
+        this.tracked.setCurrent(key, documentText(replaced));
+      }
       await this.deriver.recompute(file.uri, bulk);
     }
     return applied;
