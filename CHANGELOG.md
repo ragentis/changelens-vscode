@@ -2,6 +2,13 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3](https://github.com/ragentis/changelens-vscode/compare/v0.2.2...v0.2.3) (2026-09-20)
+
+
+### Fixed
+
+* **model:** stop reporting the user's own edits as external changes ([4ff183c](https://github.com/ragentis/changelens-vscode/commit/4ff183cb27e3e1558d47c38f6beb0aa3f9eb6b5f))
+
 ## [0.2.2](https://github.com/ragentis/changelens-vscode/compare/v0.2.1...v0.2.2) (2026-08-23)
 
 
