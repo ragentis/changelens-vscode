@@ -131,7 +131,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     highlighter,
     statusBar,
     treeView,
-    treeView.onDidChangeVisibility(() => revealActiveFile()),
+    treeView.onDidChangeVisibility(({ visible }) => {
+      // VS Code holds a hidden view's refresh until it is shown again. When that deferred refresh
+      // never lands, the panel keeps the rows it last drew while the model has moved on, so the
+      // rows are rebuilt from the model on every show.
+      if (visible) {
+        tree.refresh();
+      }
+      revealActiveFile();
+    }),
     // Case sensitivity follows `normalizeKey`, so the editor and the model agree on which paths
     // name the same review. Read-only is what keeps the document from being typed into.
     ...REVIEW_SCHEMES.map((scheme) =>

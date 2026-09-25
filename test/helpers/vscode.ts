@@ -193,6 +193,12 @@ export class OutputChannel {
   }
 }
 
+export interface TreeViewOptions {
+  treeDataProvider: {
+    onDidChangeTreeData?: (listener: (element: unknown) => unknown) => { dispose: () => void };
+  };
+}
+
 export class TreeView<T> {
   /** Starts on screen; `setVisible` is how a test hides the panel. */
   visible = true;
@@ -202,7 +208,7 @@ export class TreeView<T> {
 
   constructor(
     readonly viewId: string,
-    readonly options: unknown,
+    readonly options: TreeViewOptions,
   ) {}
 
   readonly onDidChangeVisibility = (listener: (event: { visible: boolean }) => unknown) =>
@@ -983,7 +989,7 @@ export const window = {
     return channel;
   },
 
-  createTreeView(viewId: string, options: unknown): TreeView<unknown> {
+  createTreeView(viewId: string, options: TreeViewOptions): TreeView<unknown> {
     const view = new TreeView<unknown>(viewId, options);
     state.treeViews.push(view);
     return view;

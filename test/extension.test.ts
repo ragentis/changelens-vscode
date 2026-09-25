@@ -185,6 +185,25 @@ test("a hidden panel is never pulled open by the editor moving", async () => {
   expect(treeView().revealed).toHaveLength(before);
 });
 
+test("the panel is rebuilt from the model each time it is shown", async () => {
+  await write("a.ts", "one\n");
+  await activate(context);
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  let rebuilt = 0;
+  treeView().options.treeDataProvider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  treeView().setVisible(false);
+  expect(rebuilt).toBe(0);
+
+  // VS Code defers a hidden view's refresh until it is shown. When that deferred refresh is lost,
+  // the panel stays on the rows it last drew, so showing it must repaint from the model regardless.
+  treeView().setVisible(true);
+  expect(rebuilt).toBe(1);
+});
+
 test("autoReveal off keeps the panel where the user left it", async () => {
   editor.state.configuration.set("changelens.autoReveal", false);
   await write("a.ts", "one\n");
