@@ -2,6 +2,18 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0](https://github.com/ragentis/changelens-vscode/compare/v0.2.3...v0.3.0) (2026-09-27)
+
+
+### Added
+
+* **ui:** accept every pending file under a folder in the changes tree ([827255e](https://github.com/ragentis/changelens-vscode/commit/827255e625187332bdbd8a49c04a58c6f9be1a33))
+
+
+### Fixed
+
+* **ui:** rebuild the changes panel from the model each time it is shown ([426a2bd](https://github.com/ragentis/changelens-vscode/commit/426a2bd8e36bc14f7be9926a2b8f5d8d9bb45505))
+
 ## [0.2.3](https://github.com/ragentis/changelens-vscode/compare/v0.2.2...v0.2.3) (2026-09-20)
 
 
