@@ -6,6 +6,7 @@ import { BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME, toReviewUri } from "../ui/s
 import {
   ACCEPT_ALL,
   acceptAllPrompt,
+  acceptFolderPrompt,
   CAPTURE_BASELINE,
   DELETE_FILE,
   deleteAddedFile,
@@ -24,7 +25,7 @@ import {
   STALE_HUNK,
   warn,
 } from "./messages";
-import { hunkAtCursor, resolveFile, resolveReviewFileUri } from "./targets";
+import { hunkAtCursor, resolveFile, resolveFolder, resolveReviewFileUri } from "./targets";
 
 export { resolveKey } from "./targets";
 
@@ -254,6 +255,24 @@ export function registerCommands(
     }
     if (!(await model.revertFile(file.key)) && requireBaseline()) {
       warn(STALE_FILE);
+    }
+  });
+
+  // ── one folder ───────────────────────────────────────────────────────────
+
+  register("changelens.acceptFolder", async (arg: unknown) => {
+    const folder = resolveFolder(model, arg);
+    if (!folder || folder.files.length === 0 || !requireBaseline()) {
+      return;
+    }
+    const confirm = await vscode.window.showInformationMessage(
+      acceptFolderPrompt(folder.path, folder.files.length),
+      { modal: true },
+      ACCEPT_ALL,
+    );
+    if (confirm === ACCEPT_ALL) {
+      await model.acceptFiles(folder.files.map((file) => file.key));
+      requireBaseline();
     }
   });
 

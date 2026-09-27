@@ -13,6 +13,16 @@ interface FileNodeLike {
   file: { key: string };
 }
 
+interface FolderNodeLike {
+  path: string;
+  children: readonly unknown[];
+}
+
+export interface FolderTarget {
+  path: string;
+  files: PendingFile[];
+}
+
 export type CursorHunk =
   | { ok: true; key: string; signature: string }
   | { ok: false; message: string };
@@ -23,6 +33,13 @@ function isFileNodeLike(value: unknown): value is FileNodeLike {
   }
   const { file } = value;
   return typeof file === "object" && file !== null && "key" in file && typeof file.key === "string";
+}
+
+function isFolderNodeLike(value: unknown): value is FolderNodeLike {
+  if (typeof value !== "object" || value === null || !("path" in value) || !("children" in value)) {
+    return false;
+  }
+  return typeof value.path === "string" && Array.isArray(value.children);
 }
 
 export function resolveKey(model: ChangeModel, arg: unknown): string | undefined {
@@ -46,6 +63,31 @@ export function resolveKey(model: ChangeModel, arg: unknown): string | undefined
 export function resolveFile(model: ChangeModel, arg: unknown): PendingFile | undefined {
   const key = resolveKey(model, arg);
   return key ? model.get(key) : undefined;
+}
+
+/**
+ * The pending files under a folder row, as the row showed them. Files that arrived after the row
+ * was drawn are left out, so only what the user could see is accepted.
+ */
+export function resolveFolder(model: ChangeModel, arg: unknown): FolderTarget | undefined {
+  if (!isFolderNodeLike(arg)) {
+    return undefined;
+  }
+  const files: PendingFile[] = [];
+  const collect = (children: readonly unknown[]) => {
+    for (const child of children) {
+      if (isFileNodeLike(child)) {
+        const file = model.get(child.file.key);
+        if (file) {
+          files.push(file);
+        }
+      } else if (isFolderNodeLike(child)) {
+        collect(child.children);
+      }
+    }
+  };
+  collect(arg.children);
+  return { path: arg.path, files };
 }
 
 /**

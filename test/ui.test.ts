@@ -233,6 +233,47 @@ test("every refresh replaces the row, so reveal has to look it up again", async 
   provider.dispose();
 });
 
+test("accepting a folder row accepts every file under it, after confirmation", async () => {
+  for (const name of ["src/model/a.ts", "src/model/deep/b.ts", "src/ui/c.ts", "top.ts"]) {
+    await write(name, "one\n");
+  }
+  await model.initialize();
+  for (const name of ["src/model/a.ts", "src/model/deep/b.ts", "src/ui/c.ts", "top.ts"]) {
+    await agentWrote(name, "one\ntwo\n");
+  }
+
+  const provider = tree();
+  const src = must(provider.getChildren()[0], "the src folder row");
+  const modelFolder = must(provider.getChildren(src)[0], "the model folder row");
+
+  editor.state.answer = () => undefined;
+  await editor.run("changelens.acceptFolder", modelFolder);
+  expect(lastMessage()).toContain("Accept all changes in 2 files under src/model?");
+  expect(model.files).toHaveLength(4);
+
+  editor.state.answer = (_message, items) => items.find((item) => item === "Accept All");
+  await editor.run("changelens.acceptFolder", modelFolder);
+  expect(model.files.map((file) => file.key)).toEqual([key("src", "ui", "c.ts"), key("top.ts")]);
+  expect(store.has(key("src", "model", "deep", "b.ts"))).toBe(true);
+  provider.dispose();
+});
+
+test("a folder row accepts only the files it showed, not ones that arrived since", async () => {
+  await write("src/a.ts", "one\n");
+  await write("src/b.ts", "one\n");
+  await model.initialize();
+  await agentWrote("src/a.ts", "one\ntwo\n");
+
+  const provider = tree();
+  const src = must(provider.getChildren()[0], "the src folder row");
+  await agentWrote("src/b.ts", "one\ntwo\n");
+
+  editor.state.answer = (_message, items) => items.find((item) => item === "Accept All");
+  await editor.run("changelens.acceptFolder", src);
+  expect(model.files.map((file) => file.key)).toEqual([key("src", "b.ts")]);
+  provider.dispose();
+});
+
 // #endregion
 
 // #region deletions

@@ -310,6 +310,12 @@
         "icon": "$(discard)"
       },
       {
+        "command": "changelens.acceptFolder",
+        "title": "Accept Folder",
+        "category": "ChangeLens",
+        "icon": "$(check)"
+      },
+      {
         "command": "changelens.acceptAll",
         "title": "Accept All",
         "category": "ChangeLens",
@@ -398,6 +404,11 @@
       ],
       "view/item/context": [
         {
+          "command": "changelens.acceptFolder",
+          "when": "view == changelens.changes && viewItem == changelens.folder",
+          "group": "inline@1"
+        },
+        {
           "command": "changelens.openFile",
           "when": "view == changelens.changes && viewItem == changelens.file",
           "group": "inline@0"
@@ -466,6 +477,10 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "changelens.acceptFolder",
+          "when": "false"
+        },
         {
           "command": "changelens.openDiff",
           "when": "false"

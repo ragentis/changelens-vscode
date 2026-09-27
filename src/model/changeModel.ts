@@ -389,6 +389,10 @@ export class ChangeModel implements vscode.Disposable {
     return this.reviewAction<void>(undefined, () => this.review.acceptAll());
   }
 
+  acceptFiles(keys: readonly string[]): Promise<void> {
+    return this.reviewAction<void>(undefined, () => this.review.acceptFiles(keys));
+  }
+
   revertAll(): Promise<string[]> {
     return this.reviewAction<string[]>([], () => this.review.revertAll());
   }

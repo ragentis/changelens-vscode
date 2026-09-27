@@ -68,6 +68,10 @@ export function acceptAllPrompt(count: number): string {
   return `Accept all changes in ${fileCount(count)}? They can no longer be reverted from here.`;
 }
 
+export function acceptFolderPrompt(folder: string, count: number): string {
+  return `Accept all changes in ${fileCount(count)} under ${folder}? They can no longer be reverted from here.`;
+}
+
 export function revertAllPrompt(files: readonly PendingFile[]): {
   message: string;
   detail: string;

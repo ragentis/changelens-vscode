@@ -179,9 +179,13 @@ export class ReviewActions {
     return applied;
   }
 
-  async acceptAll(): Promise<void> {
-    for (const file of this.tracked.allPending()) {
-      await this.accept(file.key, true);
+  acceptAll(): Promise<void> {
+    return this.acceptFiles(this.tracked.allPending().map((file) => file.key));
+  }
+
+  async acceptFiles(keys: readonly string[]): Promise<void> {
+    for (const key of keys) {
+      await this.accept(key, true);
     }
 
     await this.store.flush();

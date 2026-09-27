@@ -76,6 +76,7 @@ This rests on the reflog, which Git keeps by default in every repository with a 
 | --- | --- |
 | ChangeLens: Refresh | Re-scans every in-scope file for external changes |
 | ChangeLens: Accept / Revert File | Acts on the whole file |
+| ChangeLens: Accept Folder | Accepts every pending file under a folder in the tree, after confirmation |
 | ChangeLens: Accept / Revert All | Acts on every pending file, after confirmation |
 | ChangeLens: Accept / Revert Block at Cursor | Acts on the block the cursor is inside |
 | ChangeLens: Toggle Review Mode | Switches between the unified view and the diff editor |
