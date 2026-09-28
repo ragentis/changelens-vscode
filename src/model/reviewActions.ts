@@ -24,8 +24,9 @@ export class ReviewActions {
     this.tracked = context.tracked;
   }
 
-  acceptFile(key: string): Promise<void> {
-    return this.accept(key, false);
+  async acceptFile(key: string): Promise<void> {
+    const accepted = await this.accept(key, false);
+    this.context.logFiles("Accepted", accepted ? [accepted] : []);
   }
 
   revertFile(key: string): Promise<boolean> {
@@ -36,10 +37,10 @@ export class ReviewActions {
    * `bulk` defers notification and flush to the caller. Both are workspace-wide, so paying them
    * per file would repeatedly serialize and redraw the whole review.
    */
-  private async accept(key: string, bulk: boolean): Promise<void> {
+  private async accept(key: string, bulk: boolean): Promise<vscode.Uri | undefined> {
     const file = this.tracked.pending(key);
     if (!file) {
-      return;
+      return undefined;
     }
 
     const store = this.store;
@@ -51,7 +52,7 @@ export class ReviewActions {
       const state = await this.reader.read(file.uri);
       if (state.kind === "unreadable") {
         // Nothing to accept while the file cannot be read; leave the baseline as it is.
-        return;
+        return undefined;
       }
       if (state.kind === "missing") {
         store.delete(key);
@@ -71,6 +72,7 @@ export class ReviewActions {
     if (!bulk) {
       await store.flush();
     }
+    return file.uri;
   }
 
   async acceptHunk(key: string, signature: string): Promise<boolean> {
@@ -90,6 +92,7 @@ export class ReviewActions {
     await this.deriver.recompute(file.uri);
     this.context.warnIfCrowded();
     await this.store.flush();
+    this.context.logFiles("Accepted one block", [file.uri]);
     return true;
   }
 
@@ -184,11 +187,16 @@ export class ReviewActions {
   }
 
   async acceptFiles(keys: readonly string[]): Promise<void> {
+    const accepted: vscode.Uri[] = [];
     for (const key of keys) {
-      await this.accept(key, true);
+      const uri = await this.accept(key, true);
+      if (uri) {
+        accepted.push(uri);
+      }
     }
 
     await this.store.flush();
+    this.context.logFiles("Accepted", accepted);
     this.context.fire();
   }
 

@@ -43,11 +43,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   setStatus("capturing");
-  const output = vscode.window.createOutputChannel("ChangeLens");
+  const output = vscode.window.createOutputChannel("ChangeLens", { log: true });
   let lastNotice = 0;
   const report = (message: string, error?: unknown): void => {
     const detail = error === undefined ? "" : ` ${errorText(error)}`;
-    output.appendLine(`${message}${detail}`);
+    output.error(`${message}${detail}`);
     // A failed persist makes an Accept or a Reset look like it worked, so it has to reach the
     // user rather than sit in a log nobody opens. Throttled to survive a failing disk.
     if (Date.now() - lastNotice < ERROR_NOTICE_INTERVAL_MS) {
@@ -65,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onError: report,
   });
   activeStore = store;
-  const model = new ChangeModel(store, context.workspaceState);
+  const model = new ChangeModel(store, context.workspaceState, output);
   activeModel = model;
   context.subscriptions.push(store, model, output);
 
@@ -180,7 +180,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The capture already warned and offered the reload this window needs. Rethrowing would only
     // add VS Code's own activation failure on top of a message the user has already read.
     setStatus("failed");
-    output.appendLine(`The baseline could not be captured. ${errorText(error)}`);
+    output.error(`The baseline could not be captured. ${errorText(error)}`);
     return;
   }
 

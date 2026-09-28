@@ -6,10 +6,19 @@ import { BaselineCapture } from "./baselineCapture";
 import { FileEvents } from "./fileEvents";
 import type { StatResult } from "./fileState";
 import type { DeferredEvent } from "./fileWork";
-import { ModelContext } from "./modelContext";
+import { ModelContext, type ModelLog } from "./modelContext";
 import { PendingDeriver } from "./pendingDeriver";
 import type { PendingFile } from "./pendingFile";
 import { ReviewActions } from "./reviewActions";
+
+/** What changed which files are in scope, as the log names it. */
+export type ScopeTrigger = "settings" | "gitignore" | "folders";
+
+const SCOPE_TRIGGERS: Record<ScopeTrigger, string> = {
+  settings: "a ChangeLens scope setting changed",
+  gitignore: "the root .gitignore changed",
+  folders: "the workspace folders changed",
+};
 
 /** Public model facade; its lifecycle chain serializes collaborators sharing one context. */
 export class ChangeModel implements vscode.Disposable {
@@ -27,8 +36,8 @@ export class ChangeModel implements vscode.Disposable {
 
   ready = false;
 
-  constructor(store: BaselineStore, viewModeState?: vscode.Memento) {
-    this.context = new ModelContext(store, viewModeState);
+  constructor(store: BaselineStore, viewModeState?: vscode.Memento, log?: ModelLog) {
+    this.context = new ModelContext(store, viewModeState, log);
     this.onDidChange = this.context.onDidChange;
     this.deriver = new PendingDeriver(this.context);
     this.capture = new BaselineCapture(this.context, () => {
@@ -196,10 +205,10 @@ export class ChangeModel implements vscode.Disposable {
    * Newly included files enter the baseline instead of appearing as additions. Excluded files
    * leave the review but keep their baselines, so re-including them does not accept hidden changes.
    */
-  rescope(): Promise<void> {
+  rescope(trigger: ScopeTrigger): Promise<void> {
     return this.exclusive(async () => {
       await this.context.applyConfig();
-      await this.capture.baselineUntracked();
+      await this.capture.baselineUntracked(`Scope changed because ${SCOPE_TRIGGERS[trigger]}`);
       await this.runReconcile(true);
     });
   }

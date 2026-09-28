@@ -89,7 +89,7 @@ export class WorkspaceWatcher implements vscode.Disposable {
         const rescoping = SCOPE_SETTINGS.some((setting) => event.affectsConfiguration(setting));
         this.dispatch("A settings change", async () => {
           if (rescoping) {
-            await this.model.rescope();
+            await this.model.rescope("settings");
             return;
           }
           await this.model.reloadConfig();
@@ -98,7 +98,7 @@ export class WorkspaceWatcher implements vscode.Disposable {
       }),
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         // Baseline newly opened roots before their existing files look newly created.
-        this.dispatch("A workspace folder change", () => this.model.rescope());
+        this.dispatch("A workspace folder change", () => this.model.rescope("folders"));
         this.watchRepositories();
       }),
     );
@@ -126,7 +126,7 @@ export class WorkspaceWatcher implements vscode.Disposable {
       );
       const rescope = () =>
         this.schedule("git:ignore", REPO_DEBOUNCE_MS, "A .gitignore change", () =>
-          this.model.rescope(),
+          this.model.rescope("gitignore"),
         );
       this.repoWatchers.push(
         ignore,

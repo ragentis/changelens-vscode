@@ -63,6 +63,7 @@ export class BaselineCapture {
   async captureAll(initial: boolean): Promise<void> {
     const uris = await this.context.listWorkspaceFiles();
     this.context.warnIfCrowded(uris.length);
+    const cleared = this.tracked.allPending().map((file) => file.uri);
 
     await vscode.window.withProgress(
       {
@@ -80,6 +81,10 @@ export class BaselineCapture {
 
     this.store.markInitialized();
     await this.store.flush();
+    this.context.log.info(
+      `${initial ? "Captured" : "Reset"} the baseline from ${uris.length} ${uris.length === 1 ? "file" : "files"}.`,
+    );
+    this.context.logFiles("Pending changes the reset accepted", cleared);
     this.context.fire();
   }
 
@@ -93,23 +98,36 @@ export class BaselineCapture {
       return;
     }
 
-    await this.baselineUntracked((fsPath) => arrived.some((root) => isInside(root, fsPath)));
+    await this.baselineUntracked(
+      `Folders without a stored baseline opened (${arrived.join(", ")})`,
+      (fsPath) => arrived.some((root) => isInside(root, fsPath)),
+    );
   }
 
-  /** Baselines unknown in-scope files, optionally restricted by `within`. */
-  async baselineUntracked(within?: (fsPath: string) => boolean): Promise<void> {
+  /**
+   * Baselines unknown in-scope files, optionally restricted by `within`. `reason` heads the log
+   * line naming them.
+   */
+  async baselineUntracked(reason: string, within?: (fsPath: string) => boolean): Promise<void> {
     const uris = await this.context.listWorkspaceFiles();
     // A restricted root import can still warn from the workspace-wide listing already available.
     this.context.warnIfCrowded(uris.length);
 
+    const entered: vscode.Uri[] = [];
+    const pendingAdditions: vscode.Uri[] = [];
     for (const uri of uris) {
       if (within && !within(uri.fsPath)) {
         continue;
       }
-      if (!this.store.has(normalizeKey(uri.fsPath))) {
+      const key = normalizeKey(uri.fsPath);
+      if (!this.store.has(key)) {
+        (this.tracked.pending(key)?.status === "added" ? pendingAdditions : entered).push(uri);
         await this.storeBaselineFrom(uri);
       }
     }
+
+    this.context.logFiles(`${reason}; files entered the baseline`, entered);
+    this.context.logFiles(`${reason}; pending additions entered the baseline`, pendingAdditions);
 
     // Scope listings omit retained excluded baselines, so recheck the stored total after additions.
     this.context.warnIfCrowded();
@@ -138,6 +156,8 @@ export class BaselineCapture {
     uris: readonly vscode.Uri[],
     recorded: ReadonlyMap<string, StatResult>,
   ): Promise<void> {
+    const adopted: vscode.Uri[] = [];
+    const wasPending: vscode.Uri[] = [];
     for (const uri of uris) {
       const key = normalizeKey(uri.fsPath);
       // An unsaved buffer outranks the file underneath it, as it does for any other external write.
@@ -150,6 +170,7 @@ export class BaselineCapture {
         continue;
       }
 
+      (this.tracked.pending(key) ? wasPending : adopted).push(uri);
       if (state.kind === "missing") {
         this.store.delete(key);
         this.tracked.forgetContent(key);
@@ -158,6 +179,12 @@ export class BaselineCapture {
       }
       this.tracked.removePending(key);
     }
+
+    this.context.logFiles("Git rewrote the working tree; files entered the baseline", adopted);
+    this.context.logFiles(
+      "Git rewrote the working tree; pending files entered the baseline",
+      wasPending,
+    );
 
     this.context.warnIfCrowded();
     await this.store.flush();

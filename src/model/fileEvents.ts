@@ -20,6 +20,16 @@ function rebasePath(from: string, target: string, to: string): string {
 
 type Move = { oldUri: vscode.Uri; newUri: vscode.Uri };
 
+/** What one editor operation adopted, split by whether the file had a review standing. */
+interface Adoptions {
+  entered: vscode.Uri[];
+  pending: vscode.Uri[];
+}
+
+function noAdoptions(): Adoptions {
+  return { entered: [], pending: [] };
+}
+
 /**
  * Routes external disk changes into review and folds editor-owned edits and file operations into
  * the baseline.
@@ -379,13 +389,15 @@ export class FileEvents {
   /** Adopts or forgets editor file operations instead of reporting them as external changes. */
   handleEditorCreate(uris: readonly vscode.Uri[]): Promise<void> {
     return this.joinedOperation(async () => {
+      const adoptions = noAdoptions();
       for (const uri of uris) {
         if (!this.filter.isTracked(uri) || this.work.defer(uri, "adopt")) {
           continue;
         }
 
-        await this.adopt(uri);
+        await this.adopt(uri, adoptions);
       }
+      this.logAdoptions("Created in VS Code", adoptions);
       this.context.fire();
     });
   }
@@ -405,6 +417,7 @@ export class FileEvents {
 
   handleEditorRename(moves: readonly Move[]): Promise<void> {
     return this.joinedOperation(async () => {
+      const adoptions = noAdoptions();
       for (const move of moves) {
         // Both sides have to be parked; `||` would short-circuit and drop the destination.
         const parkedOld = this.work.defer(move.oldUri, "forget");
@@ -413,14 +426,15 @@ export class FileEvents {
           continue;
         }
 
-        await this.carryMove(move);
+        await this.carryMove(move, adoptions);
       }
+      this.logAdoptions("Moved or renamed in VS Code", adoptions);
       this.context.fire();
     });
   }
 
   /** Moves every baseline and record under `oldUri`, then settles whatever else the move landed on. */
-  private async carryMove(move: Move): Promise<void> {
+  private async carryMove(move: Move, adoptions: Adoptions): Promise<void> {
     const carried = new Set<string>();
     for (const key of this.keysUnder(move.oldUri.fsPath)) {
       const from = this.pathOf(key);
@@ -439,14 +453,18 @@ export class FileEvents {
       });
     }
 
-    await this.settleDestination(move.newUri, carried);
+    await this.settleDestination(move.newUri, carried, adoptions);
   }
 
   /**
    * Adopts uncarried destinations without a baseline as user-created. The decision stays per file
    * because a folder can mix new files with carried changes that must remain pending.
    */
-  private async settleDestination(uri: vscode.Uri, carried: Set<string>): Promise<void> {
+  private async settleDestination(
+    uri: vscode.Uri,
+    carried: Set<string>,
+    adoptions: Adoptions,
+  ): Promise<void> {
     const targets = await this.expand(uri);
     if (targets.length === 0) {
       // Recompute a destination that disappeared between the rename and this handler.
@@ -462,7 +480,7 @@ export class FileEvents {
 
       // Never adopt over a baseline: that would silently accept an overwritten tracked file.
       if (this.filter.isTracked(target) && !this.store.has(key)) {
-        await this.adoptFile(target);
+        await this.adoptFile(target, adoptions);
         continue;
       }
       await this.queuedRecompute(target);
@@ -470,9 +488,9 @@ export class FileEvents {
   }
 
   /** Adds a created path to the baseline, including folder contents. */
-  private async adopt(uri: vscode.Uri): Promise<void> {
+  private async adopt(uri: vscode.Uri, adoptions: Adoptions): Promise<void> {
     for (const target of await this.expand(uri)) {
-      await this.adoptFile(target);
+      await this.adoptFile(target, adoptions);
     }
   }
 
@@ -480,13 +498,19 @@ export class FileEvents {
    * Adopts one file after the caller's scope check. Checking the limit here covers create, rename,
    * and deferred replay after the original handler has returned.
    */
-  private adoptFile(uri: vscode.Uri): Promise<void> {
+  private adoptFile(uri: vscode.Uri, adoptions: Adoptions): Promise<void> {
     const key = normalizeKey(uri.fsPath);
     return this.work.enqueue(key, async () => {
+      (this.tracked.pending(key) ? adoptions.pending : adoptions.entered).push(uri);
       await this.capture.storeBaselineFrom(uri);
       this.tracked.removePending(key);
       this.context.warnIfCrowded();
     });
+  }
+
+  private logAdoptions(operation: string, adoptions: Adoptions): void {
+    this.context.logFiles(`${operation}; files entered the baseline`, adoptions.entered);
+    this.context.logFiles(`${operation}; pending files entered the baseline`, adoptions.pending);
   }
 
   /** Expands a created or moved folder because VS Code emits one event for the whole tree. */
@@ -516,7 +540,9 @@ export class FileEvents {
     }
 
     if (event.kind === "adopt" && this.filter.isTracked(event.uri)) {
-      await this.adopt(event.uri);
+      const adoptions = noAdoptions();
+      await this.adopt(event.uri, adoptions);
+      this.logAdoptions("Created or moved in VS Code during a capture", adoptions);
       return;
     }
 

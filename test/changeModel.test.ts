@@ -1841,7 +1841,7 @@ test("a file brought into scope by a settings change is baselined, not reported"
   expect(store.size).toBe(1);
 
   editor.state.configuration.set("changelens.exclude", []);
-  await model.rescope();
+  await model.rescope("settings");
 
   expect(model.files).toEqual([]);
   expect(store.has(key(path.join("generated", "g.ts")))).toBe(true);
@@ -1858,8 +1858,8 @@ test("a rescope that crosses the tracked-file limit warns, and says so only once
   expect(editor.state.shown).toEqual([]);
 
   editor.state.configuration.set("changelens.exclude", []);
-  await model.rescope();
-  await model.rescope();
+  await model.rescope("settings");
+  await model.rescope("settings");
 
   expect(editor.state.shown).toHaveLength(1);
   expect(editor.state.shown[0]?.kind).toBe("warning");
@@ -1879,7 +1879,7 @@ test("a rescope counts the baselines it retained, not only the files it listed",
   // Excluding a folder keeps its baselines, so the listing sees one file while three are stored.
   await write("c.ts", "three\n");
   editor.state.configuration.set("changelens.exclude", ["legacy/**"]);
-  await model.rescope();
+  await model.rescope("settings");
 
   expect(store.size).toBe(3);
   expect(editor.state.shown.at(-1)?.message).toContain("tracking 3 files");
@@ -2019,7 +2019,7 @@ test("closing a workspace folder during a session drops its baselines", async ()
   expect(store.size).toBe(2);
 
   editor.setWorkspaceFolders([workspace]);
-  await model.rescope();
+  await model.rescope("settings");
 
   // Unlike an exclude pattern, a closed folder is gone: keeping its baseline would resurrect it
   // whenever the folder came back, however long it had been edited elsewhere in the meantime.
@@ -2044,7 +2044,7 @@ test("a workspace folder closed during a capture cannot rewrite the roots undern
   // it is still writing against, and every remaining file would be persisted as an absolute path
   // that outlives the folder.
   editor.setWorkspaceFolders([workspace]);
-  const rescoping = model.rescope();
+  const rescoping = model.rescope("settings");
   gate.release();
   await Promise.all([capture, rescoping]);
   await store.flush();
@@ -2067,12 +2067,12 @@ test("a file taken out of scope leaves the review but keeps its baseline", async
   expect(model.files).toHaveLength(1);
 
   editor.state.configuration.set("changelens.exclude", ["b.ts"]);
-  await model.rescope();
+  await model.rescope("settings");
   expect(model.files).toEqual([]);
 
   // Excluding and re-including must not have quietly accepted the change it hid.
   editor.state.configuration.set("changelens.exclude", []);
-  await model.rescope();
+  await model.rescope("settings");
   expect(model.get(key("b.ts"))?.baselineText).toBe("two\n");
 });
 
@@ -2423,6 +2423,132 @@ test("the byte order mark stays out of the reviewed text", async () => {
   expect(file?.currentText).toBe("one\ntwo\n");
   expect(file?.baselineHadBom).toBe(true);
   expect(file?.currentHadBom).toBe(true);
+});
+
+// #endregion
+
+// #region baseline log
+
+/** Replaces the model with one whose log lines are kept, for the tests that read them. */
+function logged(): string[] {
+  const lines: string[] = [];
+  model.dispose();
+  model = new ChangeModel(store, undefined, { info: (message) => lines.push(message) });
+  return lines;
+}
+
+test("a rescope names the files it brought into the baseline, and why", async () => {
+  const log = logged();
+  editor.state.configuration.set("changelens.exclude", ["generated"]);
+  await write(path.join("generated", "g.ts"), "generated\n");
+  await write("a.ts", "one\n");
+  await model.initialize();
+  log.length = 0;
+
+  editor.state.configuration.set("changelens.exclude", []);
+  await model.rescope("gitignore");
+
+  expect(log).toContain(
+    `Scope changed because the root .gitignore changed; files entered the baseline (1 file): ${path.join("generated", "g.ts")}`,
+  );
+});
+
+test("a rescope names a pending addition apart from files that were never reviewed", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await model.initialize();
+  log.length = 0;
+  await write("new.ts", "from the agent\n");
+  await model.handleDiskWrite(uri("new.ts"));
+
+  await model.rescope("settings");
+
+  // This is the line that says a review vanished, so it must not hide among newly included files.
+  expect(log).toContain(
+    "Scope changed because a ChangeLens scope setting changed; pending additions entered the baseline (1 file): new.ts",
+  );
+  expect(log.some((line) => line.includes("; files entered the baseline"))).toBe(false);
+});
+
+test("a file VS Code creates over a pending addition is logged as a pending file", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await model.initialize();
+  log.length = 0;
+  await write("new.ts", "from the agent\n");
+  await model.handleDiskWrite(uri("new.ts"));
+
+  await model.handleEditorCreate([uri("new.ts")]);
+
+  expect(model.files).toEqual([]);
+  expect(log).toEqual(["Created in VS Code; pending files entered the baseline (1 file): new.ts"]);
+});
+
+test("Git's adoption names the pending files it took out of review", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await model.initialize();
+  log.length = 0;
+  await write("a.ts", "pulled\n");
+  await model.handleDiskWrite(uri("a.ts"));
+
+  const recorded = await model.snapshotDisk([uri("a.ts")]);
+  await model.absorbGitRewrite([uri("a.ts")], recorded);
+
+  expect(log).toEqual([
+    "Git rewrote the working tree; pending files entered the baseline (1 file): a.ts",
+  ]);
+});
+
+test("accepts are logged, so an accidental one can be told apart from an automatic write", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  log.length = 0;
+  await write("a.ts", "one changed\n");
+  await write("b.ts", "two changed\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  await model.handleDiskWrite(uri("b.ts"));
+
+  await model.acceptFile(key("a.ts"));
+  await model.acceptAll();
+
+  expect(log).toEqual(["Accepted (1 file): a.ts", "Accepted (1 file): b.ts"]);
+});
+
+test("a reset names the pending changes it accepted", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await model.initialize();
+  log.length = 0;
+  await write("a.ts", "changed\n");
+  await model.handleDiskWrite(uri("a.ts"));
+
+  await model.captureBaseline(false);
+
+  expect(log).toEqual([
+    "Reset the baseline from 1 file.",
+    "Pending changes the reset accepted (1 file): a.ts",
+  ]);
+});
+
+test("a long list is cut short with a count of the rest", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await model.initialize();
+  log.length = 0;
+  const names = Array.from({ length: 25 }, (_, index) => `f${String(index).padStart(2, "0")}.ts`);
+  for (const name of names) {
+    await write(name, "new\n");
+  }
+
+  await model.handleEditorCreate(names.map((name) => uri(name)));
+
+  const line = must(log[0], "the adoption line");
+  expect(line).toContain("(25 files)");
+  expect(line).toContain("f19.ts, and 5 more");
+  expect(line).not.toContain("f20.ts");
 });
 
 // #endregion

@@ -184,6 +184,18 @@ export class OutputChannel {
     this.lines.push(line);
   }
 
+  info(message: string): void {
+    this.lines.push(`[info] ${message}`);
+  }
+
+  warn(message: string): void {
+    this.lines.push(`[warning] ${message}`);
+  }
+
+  error(message: string): void {
+    this.lines.push(`[error] ${message}`);
+  }
+
   show(): void {
     this.shown += 1;
   }

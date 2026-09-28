@@ -17,6 +17,16 @@ import { TrackedFiles } from "./trackedFiles";
 /** Coalesces bursts of checks without suppressing later warnings. */
 const WARNING_INTERVAL_MS = 60_000;
 
+/** Enough paths to recognise what moved; a pasted folder or a pull can name thousands. */
+const LOGGED_PATH_LIMIT = 20;
+
+/** Records what put files into the baseline, so a review that vanished can be traced. */
+export interface ModelLog {
+  info(message: string): void;
+}
+
+const SILENT_LOG: ModelLog = { info: () => undefined };
+
 /**
  * Shared model state and workspace access. Capture, events, derivation, and review intentionally
  * operate on the same tracked set, store, reader, and filter.
@@ -46,6 +56,7 @@ export class ModelContext implements vscode.Disposable {
   constructor(
     readonly store: BaselineStore,
     private readonly toggleState?: vscode.Memento,
+    readonly log: ModelLog = SILENT_LOG,
   ) {
     const viewMode = toggleState?.get<string>(VIEW_MODE_STATE_KEY);
     const reviewMode = toggleState?.get<string>(REVIEW_MODE_STATE_KEY);
@@ -91,6 +102,21 @@ export class ModelContext implements vscode.Disposable {
   fire(): void {
     this.notifiedRevision = this.tracked.revision;
     this.emitter.fire();
+  }
+
+  /** Records `what` with the files it names, or nothing when it named none. */
+  logFiles(what: string, uris: readonly vscode.Uri[]): void {
+    if (uris.length === 0) {
+      return;
+    }
+    const shown = uris
+      .slice(0, LOGGED_PATH_LIMIT)
+      .map((uri) => vscode.workspace.asRelativePath(uri));
+    const rest = uris.length - shown.length;
+    const noun = uris.length === 1 ? "file" : "files";
+    this.log.info(
+      `${what} (${uris.length} ${noun}): ${shown.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}`,
+    );
   }
 
   /**
