@@ -2,6 +2,14 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/ragentis/changelens-vscode/compare/v0.3.0...v0.3.1) (2026-09-28)
+
+
+### Fixed
+
+* **model:** keep pending additions under review when scope changes ([bb3b69f](https://github.com/ragentis/changelens-vscode/commit/bb3b69fb71bda6553c725c34a5c48acae861d26b))
+* **ui:** keep hunk lenses clickable while files keep changing ([7d06576](https://github.com/ragentis/changelens-vscode/commit/7d06576068dcfabd41587a8fb9b5df3835b316d3))
+
 ## [0.3.0](https://github.com/ragentis/changelens-vscode/compare/v0.2.3...v0.3.0) (2026-09-27)
 
 
