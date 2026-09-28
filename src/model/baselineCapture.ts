@@ -107,6 +107,9 @@ export class BaselineCapture {
   /**
    * Baselines unknown in-scope files, optionally restricted by `within`. `reason` heads the log
    * line naming them.
+   *
+   * A pending addition has no baseline either, but it was in scope and under review already.
+   * Baselining it would accept it, so only files the review has never seen are taken in.
    */
   async baselineUntracked(reason: string, within?: (fsPath: string) => boolean): Promise<void> {
     const uris = await this.context.listWorkspaceFiles();
@@ -114,20 +117,18 @@ export class BaselineCapture {
     this.context.warnIfCrowded(uris.length);
 
     const entered: vscode.Uri[] = [];
-    const pendingAdditions: vscode.Uri[] = [];
     for (const uri of uris) {
       if (within && !within(uri.fsPath)) {
         continue;
       }
       const key = normalizeKey(uri.fsPath);
-      if (!this.store.has(key)) {
-        (this.tracked.pending(key)?.status === "added" ? pendingAdditions : entered).push(uri);
+      if (!this.store.has(key) && !this.tracked.pending(key)) {
+        entered.push(uri);
         await this.storeBaselineFrom(uri);
       }
     }
 
     this.context.logFiles(`${reason}; files entered the baseline`, entered);
-    this.context.logFiles(`${reason}; pending additions entered the baseline`, pendingAdditions);
 
     // Scope listings omit retained excluded baselines, so recheck the stored total after additions.
     this.context.warnIfCrowded();

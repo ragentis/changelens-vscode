@@ -2453,21 +2453,27 @@ test("a rescope names the files it brought into the baseline, and why", async ()
   );
 });
 
-test("a rescope names a pending addition apart from files that were never reviewed", async () => {
+test("a rescope leaves a pending addition under review while it takes in newly included files", async () => {
   const log = logged();
+  editor.state.configuration.set("changelens.exclude", ["generated"]);
+  await write(path.join("generated", "g.ts"), "generated\n");
   await write("a.ts", "one\n");
   await model.initialize();
   log.length = 0;
   await write("new.ts", "from the agent\n");
   await model.handleDiskWrite(uri("new.ts"));
 
-  await model.rescope("settings");
+  editor.state.configuration.set("changelens.exclude", []);
+  await model.rescope("gitignore");
 
-  // This is the line that says a review vanished, so it must not hide among newly included files.
-  expect(log).toContain(
-    "Scope changed because a ChangeLens scope setting changed; pending additions entered the baseline (1 file): new.ts",
-  );
-  expect(log.some((line) => line.includes("; files entered the baseline"))).toBe(false);
+  // Both lack a baseline, but only the generated file is new to the review. Baselining the agent's
+  // file would accept it without anyone having looked at it.
+  expect(model.get(key("new.ts"))?.status).toBe("added");
+  expect(store.has(key("new.ts"))).toBe(false);
+  expect(store.has(key(path.join("generated", "g.ts")))).toBe(true);
+  expect(log).toEqual([
+    `Scope changed because the root .gitignore changed; files entered the baseline (1 file): ${path.join("generated", "g.ts")}`,
+  ]);
 });
 
 test("a file VS Code creates over a pending addition is logged as a pending file", async () => {
