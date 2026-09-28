@@ -31,6 +31,7 @@ export class ModelContext implements vscode.Disposable {
 
   private readonly emitter = new vscode.EventEmitter<void>();
   private lastWarning = 0;
+  private notifiedRevision = -1;
 
   readonly onDidChange = this.emitter.event;
 
@@ -88,7 +89,19 @@ export class ModelContext implements vscode.Disposable {
   }
 
   fire(): void {
+    this.notifiedRevision = this.tracked.revision;
     this.emitter.fire();
+  }
+
+  /**
+   * Fires only when the pending set moved since the last notification. Every listener refreshes
+   * every open editor, and VS Code postpones reading CodeLenses on each event, so a stream of
+   * writes that change nothing kept stale, unclickable lenses on screen.
+   */
+  firePendingChange(): void {
+    if (this.tracked.revision !== this.notifiedRevision) {
+      this.fire();
+    }
   }
 
   /** Rebuilds the filter before publishing config, so events cannot mix old scope with new limits. */

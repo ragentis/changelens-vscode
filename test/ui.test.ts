@@ -8,7 +8,7 @@ import { ChangeModel } from "../src/model/changeModel";
 import { BaselineStore } from "../src/storage/baselineStore";
 import { activeFileContext } from "../src/ui/activeFileContext";
 import { ChangesTreeProvider } from "../src/ui/changesTree";
-import { HunkCodeLensProvider } from "../src/ui/hunkCodeLens";
+import { HunkCodeLensProvider, LENS_REFRESH_INTERVAL_MS } from "../src/ui/hunkCodeLens";
 import { ReviewFileSystemProvider } from "../src/ui/reviewFileSystemProvider";
 import { BASE_SCHEME, CURRENT_SCHEME, REVIEW_SCHEME, TREE_SCHEME } from "../src/ui/schemes";
 import { must } from "./helpers/assert";
@@ -527,6 +527,34 @@ test("a deletion and a contentless file offer no block lenses", async () => {
 
   expect(lensesFor(editor.openDocument(fsPath("a.ts"), ""))).toEqual([]);
   expect(lensesFor(editor.openDocument(fsPath("logo.png"), ""))).toEqual([]);
+});
+
+test("lens refreshes are spaced out, with the last change announced after the burst", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  const provider = new HunkCodeLensProvider(model);
+  let refreshes = 0;
+  const subscription = provider.onDidChangeCodeLenses(() => {
+    refreshes += 1;
+  });
+  try {
+    model.fire();
+    expect(refreshes).toBe(1);
+
+    // VS Code starts its wait over on each event, so a burst must not reach it event by event.
+    model.fire();
+    model.fire();
+    expect(refreshes).toBe(1);
+
+    vi.advanceTimersByTime(LENS_REFRESH_INTERVAL_MS);
+    expect(refreshes).toBe(2);
+  } finally {
+    subscription.dispose();
+    provider.dispose();
+    vi.useRealTimers();
+  }
 });
 
 test("the editor setting hides lenses in the file but never in the review", async () => {

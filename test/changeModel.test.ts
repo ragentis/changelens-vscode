@@ -976,6 +976,47 @@ test("accepting everything clears the review", async () => {
   expect(model.files).toEqual([]);
 });
 
+test("a recompute that changes nothing pending stays quiet", async () => {
+  await write("a.ts", "one\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  await write("a.ts", "one changed\n");
+  await model.handleDiskWrite(uri("a.ts"));
+
+  let notifications = 0;
+  const subscription = model.onDidChange(() => {
+    notifications += 1;
+  });
+  // Every notification refreshes every open editor, so one for a pending file that did not move,
+  // or for a file that was never pending, only restarts that work.
+  await model.recompute(uri("a.ts"));
+  await model.recompute(uri("b.ts"));
+  expect(notifications).toBe(0);
+
+  await write("a.ts", "one changed again\n");
+  await model.handleDiskWrite(uri("a.ts"));
+  subscription.dispose();
+
+  expect(notifications).toBe(1);
+});
+
+test("accepting a deletion still notifies, though the review is dropped before recomputing", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+  await fs.rm(fsPath("a.ts"));
+  await model.handleDiskDelete(uri("a.ts"));
+
+  let notifications = 0;
+  const subscription = model.onDidChange(() => {
+    notifications += 1;
+  });
+  await model.acceptFile(key("a.ts"));
+  subscription.dispose();
+
+  expect(model.files).toEqual([]);
+  expect(notifications).toBe(1);
+});
+
 test("accepting everything notifies and persists once, not once per file", async () => {
   await write("a.ts", "one\n");
   await write("b.ts", "two\n");

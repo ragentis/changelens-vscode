@@ -116,6 +116,24 @@ export function opaquePending(
 }
 
 /**
+ * Whether two reviews show the same thing. Hunks, signatures, and the unified view are computed
+ * from the fields compared here, so they need no comparison of their own.
+ */
+export function samePending(a: PendingFile, b: PendingFile): boolean {
+  return (
+    a.uri.toString() === b.uri.toString() &&
+    a.status === b.status &&
+    a.opaqueReason === b.opaqueReason &&
+    a.baselineText === b.baselineText &&
+    a.currentText === b.currentText &&
+    a.baselineHadBom === b.baselineHadBom &&
+    a.currentHadBom === b.currentHadBom &&
+    a.currentStat?.size === b.currentStat?.size &&
+    a.currentStat?.mtimeMs === b.currentStat?.mtimeMs
+  );
+}
+
+/**
  * Identifies a hunk by its content rather than its position, so a command issued against a
  * stale view either matches the same change or matches nothing.
  */

@@ -1,4 +1,4 @@
-import type { PendingFile } from "./pendingFile";
+import { type PendingFile, samePending } from "./pendingFile";
 
 /**
  * Identity of the last disk content, and its BOM; editor buffers do not expose the current file's
@@ -31,6 +31,12 @@ export class TrackedFiles {
    * keep iterating its complete original snapshot while removing files from current state.
    */
   private sorted: readonly PendingFile[] | undefined;
+  private _revision = 0;
+
+  /** Moves whenever the pending set may have changed, which is what notifications compare. */
+  get revision(): number {
+    return this._revision;
+  }
 
   keys(): string[] {
     return [...this.records.keys()];
@@ -111,8 +117,12 @@ export class TrackedFiles {
   }
 
   setPending(key: string, pending: PendingFile): void {
-    this.record(key).pending = pending;
-    this.sorted = undefined;
+    const record = this.record(key);
+    if (record.pending && samePending(record.pending, pending)) {
+      return;
+    }
+    record.pending = pending;
+    this.pendingChanged();
   }
 
   /** Drops the pending review, and the record with it once nothing else is left to remember. */
@@ -122,7 +132,7 @@ export class TrackedFiles {
       return;
     }
     delete record.pending;
-    this.sorted = undefined;
+    this.pendingChanged();
     this.dropIfEmpty(key, record);
   }
 
@@ -150,18 +160,23 @@ export class TrackedFiles {
     this.records.delete(oldKey);
     delete record.pending;
     this.records.set(newKey, record);
-    this.sorted = undefined;
+    this.pendingChanged();
   }
 
   delete(key: string): void {
     if (this.records.delete(key)) {
-      this.sorted = undefined;
+      this.pendingChanged();
     }
   }
 
   clear(): void {
     this.records.clear();
+    this.pendingChanged();
+  }
+
+  private pendingChanged(): void {
     this.sorted = undefined;
+    this._revision += 1;
   }
 
   private dropIfEmpty(key: string, record: TrackedFile): void {

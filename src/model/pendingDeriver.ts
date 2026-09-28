@@ -36,7 +36,7 @@ export class PendingDeriver {
     if (!this.filter.isTracked(uri)) {
       this.tracked.removePending(key);
       if (!silent) {
-        this.context.fire();
+        this.context.firePendingChange();
       }
       return;
     }
@@ -59,7 +59,7 @@ export class PendingDeriver {
     }
 
     if (!silent) {
-      this.context.fire();
+      this.context.firePendingChange();
     }
   }
 
