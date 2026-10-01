@@ -2,6 +2,13 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2](https://github.com/ragentis/changelens-vscode/compare/v0.3.1...v0.3.2) (2026-10-01)
+
+
+### Fixed
+
+* **ui:** rebuild the changes panel when it falls behind while shown ([1f34242](https://github.com/ragentis/changelens-vscode/commit/1f3424284f59d48092b0d8d94bede3559ed581e5))
+
 ## [0.3.1](https://github.com/ragentis/changelens-vscode/compare/v0.3.0...v0.3.1) (2026-09-28)
 
 
