@@ -215,6 +215,8 @@ export class TreeView<T> {
   /** Starts on screen; `setVisible` is how a test hides the panel. */
   visible = true;
   readonly revealed: { node: T; options: unknown }[] = [];
+  /** Set to have `reveal` reject, as it does when the drawn tree has no such row. */
+  revealFailure: Error | undefined;
   disposed = false;
   private readonly visibility = new EventEmitter<{ visible: boolean }>();
 
@@ -228,7 +230,7 @@ export class TreeView<T> {
 
   reveal(node: T, options?: unknown): Promise<void> {
     this.revealed.push({ node, options });
-    return Promise.resolve();
+    return this.revealFailure ? Promise.reject(this.revealFailure) : Promise.resolve();
   }
 
   setVisible(visible: boolean): void {
@@ -534,6 +536,7 @@ export const state = {
   outputChannels: [] as OutputChannel[],
   treeViews: [] as TreeView<unknown>[],
   activeEditorChanged: new EventEmitter<TextEditor | undefined>(),
+  windowStateChanged: new EventEmitter<{ focused: boolean }>(),
   globalState: new Map<string, unknown>(),
   /** Per-workspace state, which is where a toolbar toggle is remembered instead of in settings. */
   workspaceState: new Map<string, unknown>(),
@@ -560,6 +563,7 @@ export function reset(): void {
   state.outputChannels = [];
   state.treeViews = [];
   state.activeEditorChanged = new EventEmitter();
+  state.windowStateChanged = new EventEmitter();
   state.globalState = new Map();
   state.workspaceState = new Map();
   state.answer = () => undefined;
@@ -1011,6 +1015,12 @@ export const window = {
     dispose: () => void;
   } {
     return state.activeEditorChanged.event(listener);
+  },
+
+  onDidChangeWindowState(listener: (windowState: { focused: boolean }) => unknown): {
+    dispose: () => void;
+  } {
+    return state.windowStateChanged.event(listener);
   },
 
   registerFileDecorationProvider(_provider: unknown): { dispose: () => void } {

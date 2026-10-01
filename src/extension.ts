@@ -102,10 +102,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const active = vscode.window.activeTextEditor?.document.uri;
     const node = active ? tree.nodeForKey(fileKeyOf(active)) : undefined;
-    if (node) {
-      // Selection follows the editor; focus must not, or it would leave the file being typed in.
-      void treeView.reveal(node, { select: true, focus: false });
+    if (!active || !node) {
+      return;
     }
+    // Selection follows the editor; focus must not, or it would leave the file being typed in.
+    void treeView.reveal(node, { select: true, focus: false }).then(undefined, (error: unknown) => {
+      // The node came from the model, so a row VS Code cannot find means the panel it drew is
+      // behind the model.
+      const detail = error instanceof Error ? error.message : String(error);
+      output.warn(
+        `The changes panel had no row for ${vscode.workspace.asRelativePath(active)}, so it was rebuilt from the model. ${detail}`,
+      );
+      tree.refresh();
+    });
   };
 
   let publishedViewMode: ViewMode | undefined;
@@ -139,6 +148,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         tree.refresh();
       }
       revealActiveFile();
+    }),
+    vscode.window.onDidChangeWindowState(({ focused }) => {
+      // A refresh can also be lost while the window sits idle with the panel on screen, where no
+      // show follows to rebuild it.
+      if (focused && treeView.visible) {
+        tree.refresh();
+      }
     }),
     // Case sensitivity follows `normalizeKey`, so the editor and the model agree on which paths
     // name the same review. Read-only is what keeps the document from being typed into.

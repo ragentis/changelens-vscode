@@ -204,6 +204,48 @@ test("the panel is rebuilt from the model each time it is shown", async () => {
   expect(rebuilt).toBe(1);
 });
 
+test("a panel left on screen is rebuilt when the window regains focus", async () => {
+  await write("a.ts", "one\n");
+  await activate(context);
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  let rebuilt = 0;
+  treeView().options.treeDataProvider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  editor.state.windowStateChanged.fire({ focused: false });
+  expect(rebuilt).toBe(0);
+
+  // The panel never left the screen, so no show follows to repaint a refresh lost while idle.
+  editor.state.windowStateChanged.fire({ focused: true });
+  expect(rebuilt).toBe(1);
+
+  treeView().setVisible(false);
+  editor.state.windowStateChanged.fire({ focused: true });
+  expect(rebuilt).toBe(1);
+});
+
+test("a row VS Code cannot find rebuilds the panel and is logged", async () => {
+  await write("a.ts", "one\n");
+  await activate(context);
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  let rebuilt = 0;
+  treeView().options.treeDataProvider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+  treeView().revealFailure = new Error("Data tree node not found: 0/0:a.ts");
+
+  editor.setActiveEditor(editor.openDocument(fsPath("a.ts"), "one\ntwo\n"));
+  await vi.waitUntil(() => rebuilt === 1);
+
+  // The row was taken from the model, so the rejection is the only sign the drawn panel fell behind.
+  const logged = must(output().lines.at(-1), "the log line");
+  expect(logged).toContain("[warning] The changes panel had no row for a.ts");
+  expect(logged).toContain("Data tree node not found");
+});
+
 test("autoReveal off keeps the panel where the user left it", async () => {
   editor.state.configuration.set("changelens.autoReveal", false);
   await write("a.ts", "one\n");
