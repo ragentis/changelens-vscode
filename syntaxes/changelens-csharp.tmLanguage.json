@@ -1,0 +1,9 @@
+{
+  "name": "C# (ChangeLens review)",
+  "scopeName": "source.changelens.cs",
+  "patterns": [
+    {
+      "include": "source.cs"
+    }
+  ]
+}

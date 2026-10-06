@@ -153,6 +153,13 @@
           "GitHub Actions Workflow (ChangeLens review)"
         ],
         "configuration": "./syntaxes/yaml-language-configuration.json"
+      },
+      {
+        "id": "changelens-csharp",
+        "aliases": [
+          "C# (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/csharp-language-configuration.json"
       }
     ],
     "grammars": [
@@ -225,6 +232,11 @@
         "language": "changelens-github-actions-workflow",
         "scopeName": "source.changelens.github-actions-workflow",
         "path": "./syntaxes/changelens-github-actions-workflow.tmLanguage.json"
+      },
+      {
+        "language": "changelens-csharp",
+        "scopeName": "source.changelens.cs",
+        "path": "./syntaxes/changelens-csharp.tmLanguage.json"
       }
     ],
     "viewsContainers": {

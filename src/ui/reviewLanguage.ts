@@ -37,6 +37,7 @@ export const MIRRORS = new Map([
   ["yaml", "changelens-yaml"],
   ["dockercompose", "changelens-dockercompose"],
   ["github-actions-workflow", "changelens-github-actions-workflow"],
+  ["csharp", "changelens-csharp"],
 ]);
 
 export function mirrorReviewLanguages(): vscode.Disposable {
