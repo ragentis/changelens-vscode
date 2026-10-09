@@ -1,4 +1,7 @@
 import * as vscode from "vscode";
+import type { Hunk } from "../core/diff";
+import type { InnerChanges, TextSpan } from "../core/innerDiff";
+import { innerChanges } from "../core/innerDiff";
 import type { ChangeModel } from "../model";
 import type { LineSpan } from "./hunkGeometry";
 import { clampSpan, placeHunks } from "./hunkGeometry";
@@ -57,6 +60,21 @@ export class EditorHighlighter implements vscode.Disposable {
    */
   private readonly deletionLabel = vscode.window.createTextEditorDecorationType({});
 
+  /**
+   * The words a replacement changed, drawn over the whole-line colour in the stronger shade the
+   * diff editor uses for the same thing.
+   */
+  private readonly addedText = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor("diffEditor.insertedTextBackground"),
+  });
+
+  private readonly deletedText = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor("diffEditor.removedTextBackground"),
+  });
+
+  /** A hunk is replaced, never mutated, so what it changed inside can be kept with it. */
+  private readonly innerCache = new WeakMap<Hunk, InnerChanges | null>();
+
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(private readonly model: ChangeModel) {
@@ -96,6 +114,17 @@ export class EditorHighlighter implements vscode.Disposable {
       editor.setDecorations(this.deletionMarker[side], []);
     }
     editor.setDecorations(this.deletionLabel, []);
+    editor.setDecorations(this.addedText, []);
+    editor.setDecorations(this.deletedText, []);
+  }
+
+  private innerChangesOf(hunk: Hunk): InnerChanges | null {
+    let changes = this.innerCache.get(hunk);
+    if (changes === undefined) {
+      changes = innerChanges(hunk);
+      this.innerCache.set(hunk, changes);
+    }
+    return changes;
   }
 
   private render(editor: vscode.TextEditor): void {
@@ -110,13 +139,19 @@ export class EditorHighlighter implements vscode.Disposable {
     const deletedRanges: vscode.Range[] = [];
     const markers: Record<MarkerSide, vscode.Range[]> = { above: [], below: [] };
     const labels: vscode.DecorationOptions[] = [];
+    const addedTextRanges: vscode.Range[] = [];
+    const deletedTextRanges: vscode.Range[] = [];
 
     placeHunks(file, scheme).forEach(({ removed, added, block }, index) => {
+      const hunk = file?.hunks[index];
+      const inner = hunk ? this.innerChangesOf(hunk) : null;
       if (removed.count > 0) {
         deletedRanges.push(toRange(removed, lastLine));
+        deletedTextRanges.push(...toTextRanges(inner?.removed ?? [], removed, lastLine));
       }
       if (added.count > 0) {
         addedRanges.push(toRange(added, lastLine));
+        addedTextRanges.push(...toTextRanges(inner?.added ?? [], added, lastLine));
       }
       // A block the working file shows as neither: the lines it removed live only in the baseline.
       if (removed.count === 0 && added.count === 0) {
@@ -134,6 +169,8 @@ export class EditorHighlighter implements vscode.Disposable {
       editor.setDecorations(this.deletionMarker[side], markers[side]);
     }
     editor.setDecorations(this.deletionLabel, labels);
+    editor.setDecorations(this.addedText, addedTextRanges);
+    editor.setDecorations(this.deletedText, deletedTextRanges);
   }
 
   dispose(): void {
@@ -146,6 +183,8 @@ export class EditorHighlighter implements vscode.Disposable {
       this.deletionMarker[side].dispose();
     }
     this.deletionLabel.dispose();
+    this.addedText.dispose();
+    this.deletedText.dispose();
   }
 }
 
@@ -163,6 +202,18 @@ function markerType(side: MarkerSide): vscode.TextEditorDecorationType {
 function toRange(span: LineSpan, lastLine: number): vscode.Range {
   const { first, last } = clampSpan(span, lastLine);
   return new vscode.Range(first, 0, last, 0);
+}
+
+/** Spans past the end of a document still reloading are left for the repaint that follows. */
+function toTextRanges(spans: TextSpan[], side: LineSpan, lastLine: number): vscode.Range[] {
+  const ranges: vscode.Range[] = [];
+  for (const span of spans) {
+    const line = side.start + span.line;
+    if (line <= lastLine) {
+      ranges.push(new vscode.Range(line, span.start, line, span.end));
+    }
+  }
+  return ranges;
 }
 
 function deletionLabel(

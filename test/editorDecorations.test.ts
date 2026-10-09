@@ -48,7 +48,7 @@ async function agentWrote(name: string, text: string): Promise<void> {
 }
 
 /**
- * The five decoration types in the order the highlighter creates them. They are opaque handles,
+ * The seven decoration types in the order the highlighter creates them. They are opaque handles,
  * so the only way to tell them apart is the order of construction.
  */
 const ADDED = 0;
@@ -57,6 +57,11 @@ const MARKER = 2;
 /** The marker for a deletion that ran off the end of the file, drawn under the last line. */
 const MARKER_AT_END = 3;
 const LABEL = 4;
+/** The words a replacement changed, drawn inside the lines coloured whole. */
+const ADDED_TEXT = 5;
+const DELETED_TEXT = 6;
+const ALL = [ADDED, DELETED, MARKER, MARKER_AT_END, LABEL, ADDED_TEXT, DELETED_TEXT];
+const NOTHING = ALL.map(() => []);
 
 /** The label carries a hover and an attachment, so it is set as options rather than as a range. */
 function rangeOf(item: editor.Range | editor.DecorationOptions): editor.Range {
@@ -90,7 +95,7 @@ function decorationsAt(
 /** Renders `doc` on screen and returns the lines each decoration type ended up covering. */
 function render(doc: editor.TextDocument): number[][] {
   const surface = shownFor(doc);
-  return [ADDED, DELETED, MARKER, MARKER_AT_END, LABEL].map((index) =>
+  return ALL.map((index) =>
     decorationsAt(surface, index).flatMap((item) => {
       const range = rangeOf(item);
       return Array.from(
@@ -142,7 +147,9 @@ test("the marker reports the count and carries the deleted lines in its hover", 
   const [label] = decorationsAt(surface, LABEL);
   const options = optionsOf(must(label, "the label"));
 
-  expect(options.renderOptions?.after).toMatchObject({ contentText: "↑ 2 lines deleted" });
+  expect(options.renderOptions?.after).toMatchObject({
+    contentText: "↑ 2 lines deleted",
+  });
   // The label starts where "four" ends, so it is the label that answers the hover, not the line.
   expect(options.range.start.character).toBe(3);
 
@@ -166,7 +173,9 @@ test("a deletion off the end of the file is drawn under the last line there is",
     0,
   ]);
   expect(label.range.start.line).toBe(0);
-  expect(label.renderOptions?.after).toMatchObject({ contentText: "↓ 1 line deleted" });
+  expect(label.renderOptions?.after).toMatchObject({
+    contentText: "↓ 1 line deleted",
+  });
 });
 
 test("the review document shows both sides, unlike the working file", async () => {
@@ -183,6 +192,63 @@ test("the review document shows both sides, unlike the working file", async () =
   expect(added).toEqual([2]);
 });
 
+/** The text each inner range covers, read off the document it was set on. */
+function textsAt(surface: editor.TextEditor, index: number): string[] {
+  return decorationsAt(surface, index).map((item) => {
+    const range = rangeOf(item);
+    return surface.document
+      .lineAt(range.start.line)
+      .text.slice(range.start.character, range.end.character);
+  });
+}
+
+test("the words a replacement changed are marked inside the line", async () => {
+  await write("a.md", "The quick brown fox jumps over the lazy dog.\n");
+  await model.initialize();
+  await agentWrote("a.md", "The quick brown cat jumps over the lazy dog.\n");
+
+  const surface = shownFor(
+    editor.openDocument(fsPath("a.md"), "The quick brown cat jumps over the lazy dog.\n"),
+  );
+
+  // The whole line is still coloured; the word is what the eye is drawn to.
+  expect(decorationsAt(surface, ADDED).map((item) => rangeOf(item).start.line)).toEqual([0]);
+  expect(textsAt(surface, ADDED_TEXT)).toEqual(["cat"]);
+  // The working file has no removed line to mark anything on.
+  expect(textsAt(surface, DELETED_TEXT)).toEqual([]);
+});
+
+test("the review document marks the changed words on both sides", async () => {
+  await write("a.md", "The quick brown fox jumps over the lazy dog.\n");
+  await model.initialize();
+  await agentWrote("a.md", "The quick brown cat jumps over the lazy dog.\n");
+
+  const surface = shownFor(
+    editor.openDocument(
+      fsPath("a.md"),
+      "The quick brown fox jumps over the lazy dog.\nThe quick brown cat jumps over the lazy dog.\n",
+      false,
+      REVIEW_SCHEME,
+    ),
+  );
+
+  expect(textsAt(surface, DELETED_TEXT)).toEqual(["fox"]);
+  expect(textsAt(surface, ADDED_TEXT)).toEqual(["cat"]);
+  expect(decorationsAt(surface, DELETED_TEXT).map((item) => rangeOf(item).start.line)).toEqual([0]);
+  expect(decorationsAt(surface, ADDED_TEXT).map((item) => rangeOf(item).start.line)).toEqual([1]);
+});
+
+test("a line rewritten from scratch gets the whole-line colour only", async () => {
+  await write("a.ts", "one\ntwo\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\nTWO\n");
+
+  const surface = shownFor(editor.openDocument(fsPath("a.ts"), "one\nTWO\n"));
+
+  expect(decorationsAt(surface, ADDED).map((item) => rangeOf(item).start.line)).toEqual([1]);
+  expect(textsAt(surface, ADDED_TEXT)).toEqual([]);
+});
+
 test("the decorateEditor setting hides highlights in the file but never in the review", async () => {
   await write("a.ts", "one\ntwo\n");
   await model.initialize();
@@ -191,7 +257,7 @@ test("the decorateEditor setting hides highlights in the file but never in the r
   editor.state.configuration.set("changelens.decorateEditor", false);
   await model.reloadConfig();
 
-  expect(render(editor.openDocument(fsPath("a.ts"), "one\nTWO\n"))).toEqual([[], [], [], [], []]);
+  expect(render(editor.openDocument(fsPath("a.ts"), "one\nTWO\n"))).toEqual(NOTHING);
   expect(
     render(editor.openDocument(fsPath("a.ts"), "one\ntwo\nTWO\n", false, REVIEW_SCHEME)).flat(),
   ).not.toEqual([]);
@@ -205,7 +271,7 @@ test("an editor showing a file nobody is reviewing is cleared", async () => {
 
   // Clearing rather than skipping: the editor may still be holding decorations from before the
   // file was accepted.
-  expect(render(editor.openDocument(fsPath("b.ts"), "quiet\n"))).toEqual([[], [], [], [], []]);
+  expect(render(editor.openDocument(fsPath("b.ts"), "quiet\n"))).toEqual(NOTHING);
 });
 
 test("a deletion and a contentless file draw nothing at all", async () => {
@@ -218,8 +284,8 @@ test("a deletion and a contentless file draw nothing at all", async () => {
   await fs.writeFile(fsPath("logo.png"), Buffer.from([0x89, 0x00, 0x02, 0x03]));
   await model.handleDiskWrite(editor.asUri(editor.Uri.file(fsPath("logo.png"))));
 
-  expect(render(editor.openDocument(fsPath("a.ts"), ""))).toEqual([[], [], [], [], []]);
-  expect(render(editor.openDocument(fsPath("logo.png"), ""))).toEqual([[], [], [], [], []]);
+  expect(render(editor.openDocument(fsPath("a.ts"), ""))).toEqual(NOTHING);
+  expect(render(editor.openDocument(fsPath("logo.png"), ""))).toEqual(NOTHING);
 });
 
 test("accepting a file repaints the editor that was showing it", async () => {
@@ -286,6 +352,6 @@ test("a disposed highlighter releases its decoration types", async () => {
   highlighter.dispose();
   highlighter = undefined;
 
-  expect(created).toHaveLength(5);
+  expect(created).toHaveLength(7);
   expect(created.every((type) => type.disposed)).toBe(true);
 });

@@ -31,6 +31,8 @@ Opening a text change shows it in one of two review modes:
 - **Unified** (default) — a single read-only editor that opens at the first changed block, with removed lines kept in place directly above the lines that replaced them, in full file context.
 - **Diff editor** — VS Code's built-in diff editor.
 
+Within a replaced block, the words that actually changed are marked in a stronger shade, so a one-word edit in a long line stands out. Lines rewritten from scratch keep the whole-line colour alone.
+
 Review documents keep the file's syntax highlighting. For supported languages, validation is kept off the synthetic review document so deleted lines do not produce misleading errors.
 
 Toggle between them with **ChangeLens: Toggle Review Mode**. The choice is remembered per workspace.
@@ -92,7 +94,7 @@ This rests on the reflog, which Git keeps by default in every repository with a 
 | `changelens.defaultViewMode` | `tree` | How the view groups files, until its toggle is used |
 | `changelens.autoReveal` | `true` | Select the active editor's file in the view |
 | `changelens.showCodeLensInEditor` | `true` | Accept/Revert CodeLens above pending blocks in the regular editor |
-| `changelens.decorateEditor` | `true` | Highlight pending added lines in the regular editor |
+| `changelens.decorateEditor` | `true` | Highlight pending added lines, and the words that changed within them, in the regular editor |
 | `changelens.respectGitignore` | `true` | Exclude files matched by each workspace folder's root `.gitignore` |
 | `changelens.exclude` | `.git`, `node_modules`, `dist`, `out`, `build`, lockfiles | Additional glob patterns excluded from tracking |
 | `changelens.maxFileSizeKb` | `512` | Files larger than this are tracked without content baselines |
