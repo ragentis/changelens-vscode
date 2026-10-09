@@ -2,6 +2,19 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/ragentis/changelens-vscode/compare/v0.3.2...v0.4.0) (2026-10-09)
+
+
+### Added
+
+* **ui:** highlight the changed words within replaced lines ([b7dd9ff](https://github.com/ragentis/changelens-vscode/commit/b7dd9ff74c6fb88cb2d37dde833578d3651cb4d0))
+* **ui:** keep C# errors out of review documents ([2f41a20](https://github.com/ragentis/changelens-vscode/commit/2f41a20d4823004ff1f51cbce008ff5508618786))
+
+
+### Fixed
+
+* **tracking:** adopt Git's writes only while they still match the commit Git moved to ([8c98f8d](https://github.com/ragentis/changelens-vscode/commit/8c98f8d189bb940c3f1d47de307457eec9efca43))
+
 ## [0.3.2](https://github.com/ragentis/changelens-vscode/compare/v0.3.1...v0.3.2) (2026-10-01)
 
 
