@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { normalizeKey } from "../src/core/paths";
-import { changedPaths, pathsMatchingHead } from "../src/tracking/gitMovement";
+import { changedPaths, pathsMatchingCommit } from "../src/tracking/gitMovement";
 import { must } from "./helpers/assert";
 import { ChangeModel } from "../src/model/changeModel";
 import { BaselineStore } from "../src/storage/baselineStore";
@@ -280,6 +280,90 @@ test("a reset that leaves the working tree alone adopts nothing", async () => {
   expect(await baseline("app.ts")).toBe(`${APP.join("\n")}\n`);
 });
 
+test("re-committing an agent's work after a soft reset keeps it pending", async () => {
+  await clonedRepository();
+  await model.initialize();
+  await observe();
+  await agentWrote("app.ts", agentApp());
+  git(workspace, "commit", "-am", "commit the agent's work");
+  await agentWrote("added.ts", "written by an agent\n");
+  git(workspace, "add", ".");
+  git(workspace, "commit", "-m", "commit the new file");
+
+  // An agent reorganising its commits: back to its first one, then the same content committed
+  // again. Every file now equals HEAD, yet Git wrote none of them. The reset stops short of where
+  // HEAD was last seen, because the reflog is read from the last time HEAD stood there.
+  git(workspace, "reset", "--soft", "HEAD~1");
+  git(workspace, "reset");
+  git(workspace, "add", "added.ts");
+  git(workspace, "commit", "-m", "commit the new file again");
+  await observe();
+
+  expect(editor.state.shown).toEqual([]);
+  expect(model.get(key("app.ts"))?.status).toBe("modified");
+  expect(model.get(key("added.ts"))?.status).toBe("added");
+  expect(await baseline("app.ts")).toBe(`${APP.join("\n")}\n`);
+});
+
+test("a hard reset to an older commit is adopted like any other rewrite", async () => {
+  await clonedRepository();
+  await model.initialize();
+  await observe();
+  await agentWrote("app.ts", agentApp());
+  await model.acceptFile(key("app.ts"));
+  git(workspace, "commit", "-am", "commit the accepted work");
+  await agentWrote("other.ts", "written by an agent\n");
+  await model.acceptFile(key("other.ts"));
+  git(workspace, "commit", "-am", "commit more accepted work");
+
+  // Unlike the soft reset above, this one writes the older content back into the file. It stops
+  // one commit short of where HEAD was last seen, because returning there would not be a movement.
+  git(workspace, "reset", "--hard", "HEAD~1");
+  await gitFinished();
+  await observe();
+
+  expect(model.files).toEqual([]);
+  expect(await baseline("other.ts")).toBe("untouched\n");
+  expect(await baseline("app.ts")).toBe(agentApp());
+});
+
+test("an agent's commit on top of a pull keeps its own edit pending", async () => {
+  await clonedRepository();
+  await model.initialize();
+  await observe();
+
+  await upstreamCommit("app.ts", "other.ts");
+  pull();
+  // Before the sync looks, the agent edits a pulled file and commits it. The file equals HEAD
+  // again, but what it holds is not what the pull left there.
+  await write("app.ts", "written by an agent\n");
+  git(workspace, "commit", "-am", "commit the agent's work");
+  await gitFinished();
+  await observe();
+
+  expect(model.files.map((file) => file.key)).toEqual([key("app.ts")]);
+  expect(await baseline("app.ts")).toBe(`${APP.join("\n")}\n`);
+  expect(await baseline("other.ts")).toBe("pulled\n");
+});
+
+test("a file Git deleted and an agent recreated is not adopted as deleted", async () => {
+  await clonedRepository();
+  await model.initialize();
+  await observe();
+
+  await fs.rm(fsPath("other.ts", origin));
+  git(origin, "add", "-A");
+  git(origin, "commit", "-m", "drop other");
+  pull();
+  // Recreated after the pull: untracked now, and in no tree a diff against the pull would walk.
+  await write("other.ts", "written by an agent\n");
+  await gitFinished();
+  await observe();
+
+  expect(model.get(key("other.ts"))?.status).toBe("modified");
+  expect(await baseline("other.ts")).toBe("untouched\n");
+});
+
 test("a write that lands after the pull is not adopted with it", async () => {
   await clonedRepository();
   await model.initialize();
@@ -343,10 +427,10 @@ test("a write landing after the ownership check is reviewed, not adopted", async
   // The other side of the pair, stepped through by hand because the write has to land between two
   // calls the sync makes back to back: after Git has confirmed it owns both files, before the
   // adoption reads them. The check cannot see this write, so only the snapshot can catch it.
-  const candidates = await changedPaths(workspace, [{ from: "HEAD~1", to: "HEAD" }]);
-  const uris = candidates.map((target) => editor.asUri(editor.Uri.file(target)));
+  const rewritten = await changedPaths(workspace, [{ from: "HEAD~1", to: "HEAD" }]);
+  const uris = [...rewritten.keys()].map((target) => editor.asUri(editor.Uri.file(target)));
   const recorded = await model.snapshotDisk(uris);
-  const owned = must(await pathsMatchingHead(workspace, candidates), "the files Git owns");
+  const owned = must(await pathsMatchingCommit(workspace, rewritten), "the files Git owns");
   expect(owned).toHaveLength(2);
 
   await write("app.ts", "written by an agent\n");

@@ -135,12 +135,16 @@ function rewriteRanges(entries: readonly ReflogEntry[]): CommitRange[] {
 }
 
 /**
- * Every path Git reports as differing from HEAD, including the ones it does not track, keyed the
- * way the rest of the extension keys a file. Git answers with repository-relative paths whose
- * separator is always `/`, which on POSIX is not enough to tell a separator from a file name
- * containing a backslash, so they are resolved against the root before being compared at all.
+ * Git answers with repository-relative paths whose separator is always `/`, which on POSIX is not
+ * enough to tell a separator from a file name containing a backslash, so they are resolved
+ * against the root before being compared at all.
  */
-async function dirtyKeys(folder: string, root: string): Promise<Set<string> | undefined> {
+function keyOf(root: string, relative: string): string {
+  return normalizeKey(path.resolve(root, relative));
+}
+
+/** Every path Git does not track, keyed the way the rest of the extension keys a file. */
+async function untrackedKeys(folder: string, root: string): Promise<Set<string> | undefined> {
   const status = await git(folder, [
     "status",
     "--porcelain",
@@ -152,27 +156,57 @@ async function dirtyKeys(folder: string, root: string): Promise<Set<string> | un
     return undefined;
   }
 
-  const dirty = new Set<string>();
+  const untracked = new Set<string>();
   for (const record of status.split("\0")) {
     // Each record is a two-letter status, a space, and the path.
-    if (record.length > 3) {
-      dirty.add(normalizeKey(path.resolve(root, record.slice(3))));
+    if (record.startsWith("??") && record.length > 3) {
+      untracked.add(keyOf(root, record.slice(3)));
     }
   }
-  return dirty;
+  return untracked;
 }
 
-/** The files Git rewrote between the commits of each range, as absolute paths. */
+/** Every tracked path whose working-tree content differs from what `commit` holds. */
+async function keysDifferingFrom(
+  folder: string,
+  root: string,
+  commit: string,
+): Promise<Set<string> | undefined> {
+  const diff = await git(folder, [
+    "diff",
+    "--name-only",
+    "-z",
+    "--no-renames",
+    "--no-relative",
+    commit,
+  ]);
+  if (diff === undefined) {
+    return undefined;
+  }
+
+  const differing = new Set<string>();
+  for (const relative of diff.split("\0")) {
+    if (relative !== "") {
+      differing.add(keyOf(root, relative));
+    }
+  }
+  return differing;
+}
+
+/**
+ * The files Git rewrote, as absolute paths, each with the commit whose content Git left in it.
+ * A file two ranges touched holds what the later one wrote, so the later commit wins.
+ */
 export async function changedPaths(
   folder: string,
   ranges: readonly CommitRange[],
-): Promise<string[]> {
+): Promise<Map<string, string>> {
   const root = (await git(folder, ["rev-parse", "--show-toplevel"]))?.trim();
   if (root === undefined) {
-    return [];
+    return new Map();
   }
 
-  const changed = new Set<string>();
+  const changed = new Map<string, string>();
   for (const range of ranges) {
     // Renames off, so a moved file is reported as both paths instead of one. Paths stay relative
     // to the repository root even where `diff.relative` is configured.
@@ -189,34 +223,60 @@ export async function changedPaths(
     // are adopted. Leaving one pending is recoverable; adopting one that was not Git's is not.
     for (const relative of diff?.split("\0") ?? []) {
       if (relative !== "") {
-        changed.add(relative);
+        changed.set(path.resolve(root, relative), range.to);
       }
     }
   }
 
-  return [...changed].map((relative) => path.resolve(root, relative));
+  return changed;
 }
 
 /**
- * The subset of `paths` whose working-tree content still matches HEAD, which is what establishes
- * that Git wrote what is there now. A write landing before this check — an agent's, or a
- * half-finished conflict resolution — leaves the file dirty and drops it from the answer.
+ * The subset of `rewritten` whose working-tree content still matches the commit it is keyed to,
+ * which is what establishes that Git wrote what is there now. A write landing before this check —
+ * an agent's, or a half-finished conflict resolution — leaves the file differing and drops it
+ * from the answer.
+ *
+ * The comparison is against that commit, not HEAD, because HEAD can be moved onto whatever is on
+ * disk by committing it. A soft reset followed by a fresh commit leaves every file equal to HEAD
+ * although Git wrote none of them. Against the commit the reset moved to, they all differ.
  *
  * Absent when Git could not answer at all, which is not the same as owning nothing: the caller
  * leaves the movement unrecorded so a later one tries again.
  */
-export async function pathsMatchingHead(
+export async function pathsMatchingCommit(
   folder: string,
-  paths: readonly string[],
+  rewritten: ReadonlyMap<string, string>,
 ): Promise<string[] | undefined> {
   const root = (await git(folder, ["rev-parse", "--show-toplevel"]))?.trim();
   if (root === undefined) {
     return undefined;
   }
-  if (paths.length === 0) {
+  if (rewritten.size === 0) {
     return [];
   }
 
-  const dirty = await dirtyKeys(folder, root);
-  return dirty && paths.filter((target) => !dirty.has(normalizeKey(target)));
+  // A file Git deleted and something then recreated is in no tree, so no diff reports it.
+  const untracked = await untrackedKeys(folder, root);
+  if (untracked === undefined) {
+    return undefined;
+  }
+
+  const differing = new Map<string, Set<string>>();
+  for (const commit of new Set(rewritten.values())) {
+    const keys = await keysDifferingFrom(folder, root, commit);
+    if (keys === undefined) {
+      return undefined;
+    }
+    differing.set(commit, keys);
+  }
+
+  const matching: string[] = [];
+  for (const [target, commit] of rewritten) {
+    const key = normalizeKey(target);
+    if (!untracked.has(key) && !differing.get(commit)?.has(key)) {
+      matching.push(target);
+    }
+  }
+  return matching;
 }

@@ -21,8 +21,8 @@ vi.mock("../src/tracking/git", () => ({
 
 vi.mock("../src/tracking/gitMovement", () => ({
   describeMovement: () => Promise.resolve({ kind: "unavailable" }),
-  changedPaths: () => Promise.resolve([]),
-  pathsMatchingHead: () => Promise.resolve([]),
+  changedPaths: () => Promise.resolve(new Map()),
+  pathsMatchingCommit: () => Promise.resolve([]),
 }));
 
 let root: string;

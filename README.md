@@ -61,7 +61,7 @@ Files that leave scope keep their baselines, so bringing them back does not sile
 
 A pull, merge, rebase, branch switch, or hard reset rewrites files, and those writes are not agent changes. ChangeLens watches the HEAD and the reflog that govern each folder — including worktrees and submodules — and folds Git's writes into the baseline instead of showing them for review.
 
-Only the files Git actually rewrote are folded in, named by comparing the commits HEAD moved between, so anything Git did not touch stays pending. A file is adopted only while it still holds what Git left there, judged by its size and modification time. A write that lands while Git's work is being folded in is left for review instead.
+Only the files Git actually rewrote are folded in, named by comparing the commits HEAD moved between, so anything Git did not touch stays pending. A file is adopted only while it still holds exactly what the commit Git moved to has in it. A commit made afterwards does not count, so re-committing agent work after a soft reset leaves it pending. A write that lands while Git's work is being folded in is left for review instead.
 
 - **A commit is not a review.** Committing rewrites nothing on disk, so an agent's change stays pending after you commit it. It stops being pending the next time Git rewrites that file — a pull, a rebase, or switching branches away and back — because Git's version of the file then becomes the baseline as a whole. Review before you commit, or the review lasts only until Git next writes the file.
 - **Uncommitted changes are never taken.** Git refuses to overwrite a locally modified file, so a change you have not accepted is either left alone by Git or excluded because the file no longer matches HEAD.

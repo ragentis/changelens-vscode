@@ -6,7 +6,7 @@ import {
   type CommitRange,
   describeMovement,
   type GitHead,
-  pathsMatchingHead,
+  pathsMatchingCommit,
 } from "./gitMovement";
 
 /**
@@ -149,22 +149,24 @@ export class GitSync {
   }
 
   /**
-   * Adopts without asking, because the paths reaching this point are the ones Git owns. Git
-   * refuses to overwrite a locally modified file, so an agent's unaccepted write is never among
-   * them unless it landed after Git finished — and the two checks below are ordered to catch that.
+   * Adopts without asking, because the paths reaching this point hold exactly what Git's movement
+   * left in them. A file the movement named but that holds something else was written by someone
+   * other than Git, or never written by Git at all, and stays under review.
    *
    * The snapshot is taken first and the ownership check second, so a write has nowhere to land: one
-   * before the check leaves the file dirty and drops it here, one after it moves the file off the
-   * stat the adoption verifies. Recording after the check instead would record the write itself.
+   * before the check leaves the file differing and drops it here, one after it moves the file off
+   * the stat the adoption verifies. Recording after the check instead would record the write itself.
    */
   private async absorb(folder: string, ranges: readonly CommitRange[]): Promise<boolean> {
-    const candidates = await changedPaths(folder, ranges);
-    if (candidates.length === 0) {
+    const rewritten = await changedPaths(folder, ranges);
+    if (rewritten.size === 0) {
       return true;
     }
 
-    const recorded = await this.model.snapshotDisk(candidates.map((p) => vscode.Uri.file(p)));
-    const owned = await pathsMatchingHead(folder, candidates);
+    const recorded = await this.model.snapshotDisk(
+      [...rewritten.keys()].map((p) => vscode.Uri.file(p)),
+    );
+    const owned = await pathsMatchingCommit(folder, rewritten);
     if (owned === undefined) {
       return false;
     }
