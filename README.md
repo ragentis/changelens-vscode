@@ -124,6 +124,7 @@ To install a downloaded `.vsix` by hand:
 - If a capture fails at startup, the window is not tracked until it is reloaded.
 - ChangeLens relies on VS Code's file watcher. Paths excluded by `files.watcherExclude` raise no events, so changes there are found only by **ChangeLens: Refresh**.
 - Text is tracked as UTF-8. A file in another encoding is tracked without content from disk, but reads as text while it is open in an editor, so it can move between the two as editors open and close.
+- Agent extensions with their own inline review, such as Google Antigravity, rewrite the open editor buffer to show deleted lines in place. ChangeLens reads that rewrite as an edit you made and folds it into the baseline, so the two reviews of one file disagree. Use one review per file: turn off `antigravity.enableInlineDiff`, which makes Antigravity open a diff tab instead, or turn off `changelens.showCodeLensInEditor` and `changelens.decorateEditor` to keep its inline review and ChangeLens's Changes view.
 
 ## Security
 
