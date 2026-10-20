@@ -202,6 +202,8 @@ test("the panel is rebuilt from the model each time it is shown", async () => {
   // the panel stays on the rows it last drew, so showing it must repaint from the model regardless.
   treeView().setVisible(true);
   expect(rebuilt).toBe(1);
+  // A panel that still draws too few rows after this needs the log to say the rebuild ran.
+  expect(output().lines.at(-1)).toBe("[info] The changes panel was shown and rebuilt with 1 file.");
 });
 
 test("a panel left on screen is rebuilt when the window regains focus", async () => {
@@ -220,6 +222,9 @@ test("a panel left on screen is rebuilt when the window regains focus", async ()
   // The panel never left the screen, so no show follows to repaint a refresh lost while idle.
   editor.state.windowStateChanged.fire({ focused: true });
   expect(rebuilt).toBe(1);
+  expect(output().lines.at(-1)).toBe(
+    "[info] The window regained focus and the changes panel was rebuilt with 1 file.",
+  );
 
   treeView().setVisible(false);
   editor.state.windowStateChanged.fire({ focused: true });

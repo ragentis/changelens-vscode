@@ -2453,6 +2453,32 @@ test("a rescope names the files it brought into the baseline, and why", async ()
   );
 });
 
+test("a refresh reports how many files were pending before and after it", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await model.initialize();
+  log.length = 0;
+
+  await write("a.ts", "one\ntwo\n");
+  await model.reconcile(false);
+
+  // When the panel draws fewer rows than this line reports, the model was not what fell behind.
+  expect(log).toContain("The refresh by content finished with 1 file pending, from 0 before.");
+});
+
+test("a view mode switch reports what the regrouped panel had to draw", async () => {
+  const log = logged();
+  await write("a.ts", "one\n");
+  await model.initialize();
+  await write("a.ts", "one\ntwo\n");
+  await model.reconcile(false);
+  log.length = 0;
+
+  await model.setViewMode("list");
+
+  expect(log).toEqual(["The changes panel switched to the list view with 1 file pending."]);
+});
+
 test("a rescope leaves a pending addition under review while it takes in newly included files", async () => {
   const log = logged();
   editor.state.configuration.set("changelens.exclude", ["generated"]);
@@ -2473,6 +2499,7 @@ test("a rescope leaves a pending addition under review while it takes in newly i
   expect(store.has(key(path.join("generated", "g.ts")))).toBe(true);
   expect(log).toEqual([
     `Scope changed because the root .gitignore changed; files entered the baseline (1 file): ${path.join("generated", "g.ts")}`,
+    "The scan by stat finished with 1 file pending, from 1 before.",
   ]);
 });
 

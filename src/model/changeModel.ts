@@ -6,7 +6,7 @@ import { BaselineCapture } from "./baselineCapture";
 import { FileEvents } from "./fileEvents";
 import type { StatResult } from "./fileState";
 import type { DeferredEvent } from "./fileWork";
-import { ModelContext, type ModelLog } from "./modelContext";
+import { countFiles, ModelContext, type ModelLog } from "./modelContext";
 import { PendingDeriver } from "./pendingDeriver";
 import type { PendingFile } from "./pendingFile";
 import { ReviewActions } from "./reviewActions";
@@ -175,6 +175,10 @@ export class ChangeModel implements vscode.Disposable {
         return;
       }
       await this.context.setViewMode(mode);
+      // Regrouping replaces every row, so this is one more point where the panel can fall behind.
+      this.context.log.info(
+        `The changes panel switched to the ${mode} view with ${countFiles(this.files.length)} pending.`,
+      );
       this.fire();
     });
   }
@@ -320,6 +324,7 @@ export class ChangeModel implements vscode.Disposable {
 
   private async runReconcile(trustStat: boolean): Promise<void> {
     const { store, reader, tracked } = this.context;
+    const before = tracked.allPending().length;
     const seen = new Set<string>();
     for (const uri of await this.context.listWorkspaceFiles()) {
       const key = normalizeKey(uri.fsPath);
@@ -351,6 +356,9 @@ export class ChangeModel implements vscode.Disposable {
       }
     }
 
+    this.context.log.info(
+      `${trustStat ? "The scan by stat" : "The refresh by content"} finished with ${countFiles(tracked.allPending().length)} pending, from ${before} before.`,
+    );
     this.fire();
   }
 

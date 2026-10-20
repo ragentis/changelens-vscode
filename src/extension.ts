@@ -2,7 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { registerCommands } from "./commands";
 import type { ViewMode } from "./config";
-import { ChangeModel } from "./model";
+import { ChangeModel, countFiles } from "./model";
 import { BaselineStore } from "./storage";
 import { GitSync } from "./tracking/gitSync";
 import { WorkspaceWatcher } from "./tracking/watcher";
@@ -94,6 +94,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     showCollapseAll: true,
   });
 
+  const pendingCount = () => countFiles(model.files.length);
+
   const revealActiveFile = () => {
     // `reveal` opens the view when it is hidden, which would pull the sidebar over whatever the
     // user is doing, so this only runs once the panel is already on screen.
@@ -146,6 +148,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // rows are rebuilt from the model on every show.
       if (visible) {
         tree.refresh();
+        // The panel has drawn fewer rows than the model held after a window sat idle, and nothing
+        // recorded whether this rebuild ran or what it had. These lines are rare enough to keep.
+        output.info(`The changes panel was shown and rebuilt with ${pendingCount()}.`);
       }
       revealActiveFile();
     }),
@@ -154,6 +159,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // show follows to rebuild it.
       if (focused && treeView.visible) {
         tree.refresh();
+        output.info(
+          `The window regained focus and the changes panel was rebuilt with ${pendingCount()}.`,
+        );
       }
     }),
     // Case sensitivity follows `normalizeKey`, so the editor and the model agree on which paths

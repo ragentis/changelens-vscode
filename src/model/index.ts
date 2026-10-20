@@ -4,4 +4,5 @@
  */
 export { ChangeModel } from "./changeModel";
 export { documentText, openDocument } from "./documents";
+export { countFiles } from "./modelContext";
 export type { FileStatus, OpaqueReason, PendingFile } from "./pendingFile";

@@ -27,6 +27,11 @@ export interface ModelLog {
 
 const SILENT_LOG: ModelLog = { info: () => undefined };
 
+/** `count` with its noun, for log lines that report how many files something covered. */
+export function countFiles(count: number): string {
+  return `${count} ${count === 1 ? "file" : "files"}`;
+}
+
 /**
  * Shared model state and workspace access. Capture, events, derivation, and review intentionally
  * operate on the same tracked set, store, reader, and filter.
@@ -113,9 +118,8 @@ export class ModelContext implements vscode.Disposable {
       .slice(0, LOGGED_PATH_LIMIT)
       .map((uri) => vscode.workspace.asRelativePath(uri));
     const rest = uris.length - shown.length;
-    const noun = uris.length === 1 ? "file" : "files";
     this.log.info(
-      `${what} (${uris.length} ${noun}): ${shown.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}`,
+      `${what} (${countFiles(uris.length)}): ${shown.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}`,
     );
   }
 

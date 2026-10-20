@@ -6,7 +6,7 @@ import type { BaselineStore } from "../storage";
 import type { WorkspaceFilter } from "../tracking/filter";
 import { documentText, openDocument } from "./documents";
 import type { FileState, FileStateReader, StatResult } from "./fileState";
-import type { ModelContext } from "./modelContext";
+import { countFiles, type ModelContext } from "./modelContext";
 import type { TrackedFiles } from "./trackedFiles";
 
 function currentStat(state: FileState): DiskStat | undefined {
@@ -82,7 +82,7 @@ export class BaselineCapture {
     this.store.markInitialized();
     await this.store.flush();
     this.context.log.info(
-      `${initial ? "Captured" : "Reset"} the baseline from ${uris.length} ${uris.length === 1 ? "file" : "files"}.`,
+      `${initial ? "Captured" : "Reset"} the baseline from ${countFiles(uris.length)}.`,
     );
     this.context.logFiles("Pending changes the reset accepted", cleared);
     this.context.fire();
