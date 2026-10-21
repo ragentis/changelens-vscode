@@ -93,6 +93,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     treeDataProvider: tree,
     showCollapseAll: true,
   });
+  tree.setVisible(treeView.visible);
 
   const pendingCount = () => countFiles(model.files.length);
 
@@ -143,11 +144,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     statusBar,
     treeView,
     treeView.onDidChangeVisibility(({ visible }) => {
-      // VS Code holds a hidden view's refresh until it is shown again. When that deferred refresh
-      // never lands, the panel keeps the rows it last drew while the model has moved on, so the
-      // rows are rebuilt from the model on every show.
+      // The provider sends nothing while hidden and repaints once on show, which keeps VS Code
+      // from applying held refreshes alongside a new one.
+      tree.setVisible(visible);
       if (visible) {
-        tree.refresh();
         // The panel has drawn fewer rows than the model held after a window sat idle, and nothing
         // recorded whether this rebuild ran or what it had. These lines are rare enough to keep.
         output.info(`The changes panel was shown and rebuilt with ${pendingCount()}.`);

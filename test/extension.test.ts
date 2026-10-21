@@ -198,8 +198,12 @@ test("the panel is rebuilt from the model each time it is shown", async () => {
   treeView().setVisible(false);
   expect(rebuilt).toBe(0);
 
-  // VS Code defers a hidden view's refresh until it is shown. When that deferred refresh is lost,
-  // the panel stays on the rows it last drew, so showing it must repaint from the model regardless.
+  // VS Code holds a hidden view's refreshes and applies them on show, where they have overlapped
+  // with the show's own repaint and left rows undrawn. So a hidden panel sends none, and the show
+  // sends exactly one, built from the model as it is then.
+  await agentWrote("a.ts", "one\ntwo\nthree\n");
+  expect(rebuilt).toBe(0);
+
   treeView().setVisible(true);
   expect(rebuilt).toBe(1);
   // A panel that still draws too few rows after this needs the log to say the rebuild ran.

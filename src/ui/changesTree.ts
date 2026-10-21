@@ -33,6 +33,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private roots: Node[] = [];
   private readonly parents = new Map<Node, Node>();
   private readonly byKey = new Map<string, FileNode>();
+  private visible = true;
 
   constructor(private readonly model: ChangeModel) {
     this.subscription = model.onDidChange(() => this.refresh());
@@ -43,12 +44,27 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     return this.model.config.viewMode;
   }
 
+  /**
+   * VS Code holds every refresh sent to a hidden view and applies them all when it is shown. A
+   * refresh sent at that same moment overlaps with the held ones, and the panel has then drawn
+   * fewer rows than the model held. So nothing is sent while hidden, and a show sends exactly one.
+   */
+  setVisible(visible: boolean): void {
+    this.visible = visible;
+    if (visible) {
+      this.refresh();
+    }
+  }
+
+  /** Rebuilds the rows from the model, and repaints them when the panel is on screen. */
   refresh(): void {
     this.roots = this.viewMode === "list" ? this.buildList() : this.buildTree();
     this.parents.clear();
     this.byKey.clear();
     this.index(this.roots, undefined);
-    this._onDidChangeTreeData.fire(undefined);
+    if (this.visible) {
+      this._onDidChangeTreeData.fire(undefined);
+    }
   }
 
   /** Indexes the finished tree, because folder compression rewrites nodes after they are built. */

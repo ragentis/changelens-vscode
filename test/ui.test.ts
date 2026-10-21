@@ -233,6 +233,31 @@ test("every refresh replaces the row, so reveal has to look it up again", async 
   provider.dispose();
 });
 
+test("a hidden panel keeps its rows current but repaints only once, on show", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+
+  const provider = tree();
+  let repainted = 0;
+  provider.onDidChangeTreeData(() => {
+    repainted += 1;
+  });
+
+  // VS Code holds every refresh sent to a hidden view and applies them all on show, where they
+  // overlapped with the show's own repaint. Reveal still needs the rows, so they are rebuilt.
+  provider.setVisible(false);
+  await agentWrote("a.ts", "one\ntwo\n");
+  expect(repainted).toBe(0);
+  expect(provider.nodeForKey(key("a.ts"))).toBeDefined();
+
+  provider.setVisible(true);
+  expect(repainted).toBe(1);
+
+  await agentWrote("a.ts", "one\ntwo\nthree\n");
+  expect(repainted).toBe(2);
+  provider.dispose();
+});
+
 test("accepting a folder row accepts every file under it, after confirmation", async () => {
   for (const name of ["src/model/a.ts", "src/model/deep/b.ts", "src/ui/c.ts", "top.ts"]) {
     await write(name, "one\n");
