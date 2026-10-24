@@ -208,6 +208,9 @@ export class OutputChannel {
 export interface TreeViewOptions {
   treeDataProvider: {
     onDidChangeTreeData?: (listener: (element: unknown) => unknown) => { dispose: () => void };
+    /** What VS Code calls to draw; a test calls them to stand in for its fetching. */
+    getChildren: (element?: unknown) => unknown[];
+    getTreeItem: (element: unknown) => unknown;
   };
 }
 

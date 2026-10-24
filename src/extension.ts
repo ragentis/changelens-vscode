@@ -17,6 +17,10 @@ import { CURRENT_SCHEME, fileKeyOf, REVIEW_SCHEME, REVIEW_SCHEMES } from "./ui/s
 import { StatusBar } from "./ui/statusBar";
 
 const ERROR_NOTICE_INTERVAL_MS = 60_000;
+/** How long VS Code has to stop asking for rows before a show is treated as settled. */
+const FETCH_QUIET_MS = 300;
+/** A tree that keeps fetching this long is handled anyway, or a reveal would never follow. */
+const SHOW_SETTLE_LIMIT_MS = 3_000;
 
 let activeStore: BaselineStore | undefined;
 let activeModel: ChangeModel | undefined;
@@ -120,6 +124,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
   };
 
+  let settleTimer: NodeJS.Timeout | undefined;
+  /**
+   * On the first show, VS Code builds the tree and fetches its rows before it reports the view
+   * visible. A refresh or a reveal sent while those fetches are in flight cancels them, and the
+   * folders they were for are drawn empty. So the show waits until VS Code has stopped asking
+   * for rows, and only then rebuilds the panel if VS Code drew stale rows, and reveals.
+   */
+  const settleAfterShow = (deadline: number) => {
+    settleTimer = undefined;
+    const remaining = FETCH_QUIET_MS - tree.sinceLastFetch();
+    if (remaining > 0 && Date.now() < deadline) {
+      settleTimer = setTimeout(() => settleAfterShow(deadline), remaining);
+      return;
+    }
+    if (tree.isDrawn()) {
+      output.info(`The changes panel was shown with ${pendingCount()} already drawn.`);
+    } else {
+      // The panel has drawn fewer rows than the model held after a window sat idle, and nothing
+      // recorded whether this rebuild ran or what it had. These lines are rare enough to keep.
+      tree.refresh();
+      output.info(`The changes panel was shown and rebuilt with ${pendingCount()}.`);
+    }
+    revealActiveFile();
+  };
+
   let publishedViewMode: ViewMode | undefined;
   const publishViewMode = () => {
     if (model.config.viewMode === publishedViewMode) {
@@ -143,16 +172,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     highlighter,
     statusBar,
     treeView,
+    { dispose: () => clearTimeout(settleTimer) },
     treeView.onDidChangeVisibility(({ visible }) => {
-      // The provider sends nothing while hidden and repaints once on show, which keeps VS Code
-      // from applying held refreshes alongside a new one.
       tree.setVisible(visible);
       if (visible) {
-        // The panel has drawn fewer rows than the model held after a window sat idle, and nothing
-        // recorded whether this rebuild ran or what it had. These lines are rare enough to keep.
-        output.info(`The changes panel was shown and rebuilt with ${pendingCount()}.`);
+        settleAfterShow(Date.now() + SHOW_SETTLE_LIMIT_MS);
+      } else {
+        clearTimeout(settleTimer);
+        settleTimer = undefined;
       }
-      revealActiveFile();
     }),
     vscode.window.onDidChangeWindowState(({ focused }) => {
       // A refresh can also be lost while the window sits idle with the panel on screen, where no

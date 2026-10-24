@@ -171,6 +171,62 @@ test("the panel follows the active editor once the file is under review", async 
   expect(reveal?.options).toEqual({ select: true, focus: false });
 });
 
+test("a show VS Code has already drawn from the current model is left alone", async () => {
+  await write("a.ts", "one\n");
+  await activate(context);
+  await agentWrote("a.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+
+  let rebuilt = 0;
+  const provider = treeView().options.treeDataProvider;
+  provider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  // On the first show VS Code builds the tree and fetches the rows itself, before it reports the
+  // view visible. A refresh sent then cancels the fetches still in flight, and those folders are
+  // drawn empty.
+  treeView().setVisible(false);
+  provider.getChildren();
+  treeView().setVisible(true);
+  vi.advanceTimersByTime(1_000);
+
+  expect(rebuilt).toBe(0);
+  expect(output().lines.at(-1)).toBe(
+    "[info] The changes panel was shown with 1 file already drawn.",
+  );
+});
+
+test("a show waits for VS Code to stop fetching before it rebuilds stale rows", async () => {
+  await write("a.ts", "one\n");
+  await activate(context);
+  await agentWrote("a.ts", "one\ntwo\n");
+
+  let rebuilt = 0;
+  const provider = treeView().options.treeDataProvider;
+  provider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  treeView().setVisible(false);
+  const [staleRow] = provider.getChildren();
+  await agentWrote("a.ts", "one\ntwo\nthree\n");
+  vi.useFakeTimers();
+
+  treeView().setVisible(true);
+  expect(rebuilt).toBe(0);
+
+  // Still drawing the stale rows, so the wait starts over.
+  vi.advanceTimersByTime(200);
+  provider.getTreeItem(staleRow);
+  vi.advanceTimersByTime(200);
+  expect(rebuilt).toBe(0);
+
+  vi.advanceTimersByTime(200);
+  expect(rebuilt).toBe(1);
+  expect(output().lines.at(-1)).toBe("[info] The changes panel was shown and rebuilt with 1 file.");
+});
+
 test("a hidden panel is never pulled open by the editor moving", async () => {
   await write("a.ts", "one\n");
   await activate(context);

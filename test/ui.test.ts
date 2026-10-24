@@ -233,7 +233,7 @@ test("every refresh replaces the row, so reveal has to look it up again", async 
   provider.dispose();
 });
 
-test("a hidden panel keeps its rows current but repaints only once, on show", async () => {
+test("a hidden panel keeps its rows current without repainting", async () => {
   await write("a.ts", "one\n");
   await model.initialize();
 
@@ -251,10 +251,29 @@ test("a hidden panel keeps its rows current but repaints only once, on show", as
   expect(provider.nodeForKey(key("a.ts"))).toBeDefined();
 
   provider.setVisible(true);
-  expect(repainted).toBe(1);
+  expect(repainted).toBe(0);
 
   await agentWrote("a.ts", "one\ntwo\nthree\n");
-  expect(repainted).toBe(2);
+  expect(repainted).toBe(1);
+  provider.dispose();
+});
+
+test("the panel is drawn once VS Code has fetched the current rows", async () => {
+  await write("a.ts", "one\n");
+  await model.initialize();
+
+  const provider = tree();
+  expect(provider.isDrawn()).toBe(false);
+
+  // Fetching the roots is how VS Code draws; a model change after that leaves the drawing stale.
+  provider.getChildren();
+  expect(provider.isDrawn()).toBe(true);
+
+  await agentWrote("a.ts", "one\ntwo\n");
+  expect(provider.isDrawn()).toBe(false);
+
+  provider.getChildren();
+  expect(provider.isDrawn()).toBe(true);
   provider.dispose();
 });
 

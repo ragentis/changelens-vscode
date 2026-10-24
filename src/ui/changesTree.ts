@@ -34,6 +34,9 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private readonly parents = new Map<Node, Node>();
   private readonly byKey = new Map<string, FileNode>();
   private visible = true;
+  /** The roots VS Code last asked for, which is what it has drawn. */
+  private fetched: Node[] | undefined;
+  private lastFetchAt = 0;
 
   constructor(private readonly model: ChangeModel) {
     this.subscription = model.onDidChange(() => this.refresh());
@@ -45,15 +48,22 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   }
 
   /**
-   * VS Code holds every refresh sent to a hidden view and applies them all when it is shown. A
-   * refresh sent at that same moment overlaps with the held ones, and the panel has then drawn
-   * fewer rows than the model held. So nothing is sent while hidden, and a show sends exactly one.
+   * VS Code holds every refresh sent to a hidden view and applies them all when it is shown, so
+   * nothing is sent while hidden. What the show then needs is decided by the caller from
+   * {@link isDrawn}, once VS Code's own fetching has settled.
    */
   setVisible(visible: boolean): void {
     this.visible = visible;
-    if (visible) {
-      this.refresh();
-    }
+  }
+
+  /** Whether the rows VS Code last fetched are the current ones. */
+  isDrawn(): boolean {
+    return this.fetched === this.roots;
+  }
+
+  /** Milliseconds since VS Code last asked for rows, which is how drawing in progress shows. */
+  sinceLastFetch(): number {
+    return Date.now() - this.lastFetchAt;
   }
 
   /** Rebuilds the rows from the model, and repaints them when the panel is on screen. */
@@ -127,13 +137,16 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   }
 
   getChildren(element?: Node): Node[] {
+    this.lastFetchAt = Date.now();
     if (!element) {
+      this.fetched = this.roots;
       return this.roots;
     }
     return element.type === "folder" ? element.children : [];
   }
 
   getTreeItem(element: Node): vscode.TreeItem {
+    this.lastFetchAt = Date.now();
     if (element.type === "folder") {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
       if (element.uri) {
