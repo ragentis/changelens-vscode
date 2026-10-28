@@ -305,6 +305,35 @@ test("accepting a file repaints the editor that was showing it", async () => {
   expect([...surface.decorations.values()].flat()).toEqual([]);
 });
 
+test("a review document waiting for its reload keeps the decorations it has", async () => {
+  await write("a.ts", "one\ntwo\nthree\nfour\nfive\n");
+  await model.initialize();
+  await agentWrote("a.ts", "ONE\ntwo\nthree\nFOUR\nfive\n");
+
+  const doc = editor.openDocument(
+    fsPath("a.ts"),
+    "one\nONE\ntwo\nthree\nfour\nFOUR\nfive\n",
+    false,
+    REVIEW_SCHEME,
+  );
+  const [shown] = editor.setVisibleEditors(doc);
+  const surface = must(shown, "the visible editor");
+  highlighter = new EditorHighlighter(model);
+
+  const lines = (index: number): number[] =>
+    decorationsAt(surface, index).map((item) => rangeOf(item).start.line);
+  expect(lines(DELETED)).toEqual([0, 4]);
+  expect(lines(ADDED)).toEqual([1, 5]);
+
+  const file = must(model.files[0], "the pending file");
+  await model.acceptHunk(file.key, must(file.signatures[0], "the first signature"));
+
+  // The text on screen is still the old one. Painting the model's positions over it would move the
+  // second block up a line, and the reload would then move it up once more.
+  expect(lines(DELETED)).toEqual([0, 4]);
+  expect(lines(ADDED)).toEqual([1, 5]);
+});
+
 test("a reloaded review document is repainted, not left with the ranges it shifted", async () => {
   await write("a.ts", "one\ntwo\nthree\nfour\nfive\n");
   await model.initialize();

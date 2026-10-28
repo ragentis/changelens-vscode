@@ -81,9 +81,8 @@ export class EditorHighlighter implements vscode.Disposable {
     this.disposables.push(
       model.onDidChange(() => this.renderAll()),
       vscode.window.onDidChangeVisibleTextEditors(() => this.renderAll()),
-      // A review document reloads after the model change that invalidated it, and the editor
-      // shifts the decorations already on screen by the lines that reload removed. Repainting
-      // against the arrived content puts them back where the model placed them.
+      // A review document reloads after the model change that invalidated it. `render` leaves
+      // the decorations alone until then, so the arrived content is what finally repaints them.
       vscode.workspace.onDidChangeTextDocument((event) => {
         if (isReviewUri(event.document.uri)) {
           this.renderDocument(event.document);
@@ -134,6 +133,17 @@ export class EditorHighlighter implements vscode.Disposable {
       return;
     }
     const file = this.model.get(fileKeyOf(editor.document.uri));
+    // The model can be ahead of a review document still waiting for its reload. Painting the new
+    // positions over the old text would move the colours once now and again when the reload's
+    // edit shifts them. Left as they are, that edit carries them to the right lines by itself,
+    // and the repaint on the arrived text only clears the block that went away.
+    if (
+      scheme === REVIEW_SCHEME &&
+      file?.unified &&
+      !showsLines(editor.document, file.unified.lines)
+    ) {
+      return;
+    }
     const lastLine = Math.max(editor.document.lineCount - 1, 0);
     const addedRanges: vscode.Range[] = [];
     const deletedRanges: vscode.Range[] = [];
@@ -186,6 +196,13 @@ export class EditorHighlighter implements vscode.Disposable {
     this.addedText.dispose();
     this.deletedText.dispose();
   }
+}
+
+function showsLines(document: vscode.TextDocument, lines: string[]): boolean {
+  if (document.lineCount !== lines.length) {
+    return false;
+  }
+  return lines.every((line, index) => document.lineAt(index).text === line);
 }
 
 function markerType(side: MarkerSide): vscode.TextEditorDecorationType {
