@@ -17,10 +17,12 @@ import { CURRENT_SCHEME, fileKeyOf, REVIEW_SCHEME, REVIEW_SCHEMES } from "./ui/s
 import { StatusBar } from "./ui/statusBar";
 
 const ERROR_NOTICE_INTERVAL_MS = 60_000;
-/** How long VS Code has to stop asking for rows before a show is treated as settled. */
+/** How long VS Code has to stop asking for rows before a show or a refresh is treated as settled. */
 const FETCH_QUIET_MS = 300;
 /** A tree that keeps fetching this long is handled anyway, or a reveal would never follow. */
-const SHOW_SETTLE_LIMIT_MS = 3_000;
+const SETTLE_LIMIT_MS = 3_000;
+/** How many times a refresh VS Code drew with rows missing is sent again before it is left. */
+const REBUILD_LIMIT = 3;
 
 let activeStore: BaselineStore | undefined;
 let activeModel: ChangeModel | undefined;
@@ -125,28 +127,76 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   let settleTimer: NodeJS.Timeout | undefined;
+  let showPending = false;
+  let revealPending = false;
+  let rebuilds = 0;
+
   /**
-   * On the first show, VS Code builds the tree and fetches its rows before it reports the view
-   * visible. A refresh or a reveal sent while those fetches are in flight cancels them, and the
-   * folders they were for are drawn empty. So the show waits until VS Code has stopped asking
-   * for rows, and only then rebuilds the panel if VS Code drew stale rows, and reveals.
+   * Checks what VS Code drew once it has settled. A refresh or a reveal sent while VS Code is
+   * still fetching rows cancels the fetches in flight, and the folders they were for are drawn
+   * empty, so nothing touches the panel until the fetching has stopped or the deadline passes.
+   * `afterMs` is how long to wait before the first look: a refresh needs VS Code to have started
+   * fetching, while a show finds VS Code's own fetches already recorded.
    */
-  const settleAfterShow = (deadline: number) => {
-    settleTimer = undefined;
-    const remaining = FETCH_QUIET_MS - tree.sinceLastFetch();
-    if (remaining > 0 && Date.now() < deadline) {
-      settleTimer = setTimeout(() => settleAfterShow(deadline), remaining);
+  const settleLater = (afterMs: number) => {
+    clearTimeout(settleTimer);
+    const deadline = Date.now() + SETTLE_LIMIT_MS;
+    const wait = () => {
+      settleTimer = undefined;
+      const remaining = FETCH_QUIET_MS - tree.sinceLastFetch();
+      if (remaining > 0 && Date.now() < deadline) {
+        settleTimer = setTimeout(wait, remaining);
+        return;
+      }
+      settled();
+    };
+    if (afterMs > 0) {
+      settleTimer = setTimeout(wait, afterMs);
+    } else {
+      wait();
+    }
+  };
+
+  const settled = () => {
+    const missing = tree.undrawn();
+    if (showPending) {
+      showPending = false;
+      revealPending = true;
+      if (missing.length === 0) {
+        output.info(`The changes panel was shown with ${pendingCount()} already drawn.`);
+      } else {
+        // A hidden panel is sent no refreshes, so a show usually finds the rows VS Code drew
+        // before the panel was hidden.
+        tree.refresh();
+        output.info(`The changes panel was shown and rebuilt with ${pendingCount()}.`);
+        return;
+      }
+    }
+    if (missing.length === 0) {
+      rebuilds = 0;
+      output.debug(`The changes panel drew ${pendingCount()}.`);
+      if (revealPending) {
+        revealPending = false;
+        revealActiveFile();
+      }
       return;
     }
-    if (tree.isDrawn()) {
-      output.info(`The changes panel was shown with ${pendingCount()} already drawn.`);
-    } else {
-      // The panel has drawn fewer rows than the model held after a window sat idle, and nothing
-      // recorded whether this rebuild ran or what it had. These lines are rare enough to keep.
-      tree.refresh();
-      output.info(`The changes panel was shown and rebuilt with ${pendingCount()}.`);
+    // VS Code has fetched the rows it was going to, and some folders got none: those are drawn
+    // empty. A fresh refresh is the only repair available from this side.
+    const rows = missing.join(", ");
+    if (rebuilds >= REBUILD_LIMIT) {
+      rebuilds = 0;
+      revealPending = false;
+      output.warn(
+        `The changes panel still has no rows for ${rows} after ${REBUILD_LIMIT} rebuilds, so it is left as drawn until the next refresh.`,
+      );
+      return;
     }
-    revealActiveFile();
+    rebuilds += 1;
+    output.warn(
+      `The changes panel drew ${pendingCount()} without the rows of ${rows}, so it was rebuilt from the model (${rebuilds} of ${REBUILD_LIMIT}).`,
+    );
+    tree.refresh();
   };
 
   let publishedViewMode: ViewMode | undefined;
@@ -157,10 +207,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const first = publishedViewMode === undefined;
     publishedViewMode = model.config.viewMode;
     void vscode.commands.executeCommand("setContext", "changelens.viewMode", publishedViewMode);
-    // Regrouping replaces every row, which drops the selection. Content changes deliberately do
-    // not reveal: the panel would keep reselecting while an agent writes.
+    // Regrouping replaces every row, which drops the selection, so the reveal follows once the
+    // new rows are drawn. Content changes deliberately do not reveal: the panel would keep
+    // reselecting while an agent writes.
     if (!first) {
-      revealActiveFile();
+      revealPending = true;
     }
   };
 
@@ -176,12 +227,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     treeView.onDidChangeVisibility(({ visible }) => {
       tree.setVisible(visible);
       if (visible) {
-        settleAfterShow(Date.now() + SHOW_SETTLE_LIMIT_MS);
+        showPending = true;
+        settleLater(0);
       } else {
         clearTimeout(settleTimer);
         settleTimer = undefined;
+        showPending = false;
+        revealPending = false;
       }
     }),
+    // Every refresh the panel sends is checked against what VS Code then fetched.
+    tree.onDidChangeTreeData(() => settleLater(FETCH_QUIET_MS)),
+    treeView.onDidCollapseElement(({ element }) => tree.setCollapsed(element, true)),
+    treeView.onDidExpandElement(({ element }) => tree.setCollapsed(element, false)),
     vscode.window.onDidChangeWindowState(({ focused }) => {
       // A refresh can also be lost while the window sits idle with the panel on screen, where no
       // show follows to rebuild it.

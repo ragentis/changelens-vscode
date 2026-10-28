@@ -36,6 +36,12 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private visible = true;
   /** The roots VS Code last asked for, which is what it has drawn. */
   private fetched: Node[] | undefined;
+  /** The folders of the current rows whose children VS Code has asked for since the rebuild. */
+  private fetchedFolders = new Set<FolderNode>();
+  /** The rows VS Code has asked to draw since the rebuild. */
+  private itemized = new Set<Node>();
+  /** Folder paths the user collapsed, whose children VS Code does not ask for on a rebuild. */
+  private readonly collapsed = new Set<string>();
   private lastFetchAt = 0;
 
   constructor(private readonly model: ChangeModel) {
@@ -56,9 +62,52 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     this.visible = visible;
   }
 
-  /** Whether the rows VS Code last fetched are the current ones. */
+  /** Whether VS Code has fetched every row of the current build it would draw. */
   isDrawn(): boolean {
-    return this.fetched === this.roots;
+    return this.undrawn().length === 0;
+  }
+
+  /**
+   * The folders whose rows VS Code has not fetched since the last rebuild, or `the top level`
+   * when it never asked for the rows at all. VS Code fetches the children of every expanded folder
+   * after a refresh, so a folder missing here is drawn empty. A request VS Code abandons part-way
+   * does not reach `getTreeItem` for the rows, which is what tells it from a finished one.
+   */
+  undrawn(): string[] {
+    if (this.fetched !== this.roots) {
+      return ["the top level"];
+    }
+    const missing: string[] = [];
+    const visit = (nodes: Node[], within: string): void => {
+      if (!nodes.every((node) => this.itemized.has(node))) {
+        missing.push(within);
+        return;
+      }
+      for (const node of nodes) {
+        if (node.type !== "folder" || this.collapsed.has(node.path)) {
+          continue;
+        }
+        if (this.fetchedFolders.has(node)) {
+          visit(node.children, node.path);
+        } else {
+          missing.push(node.path);
+        }
+      }
+    };
+    visit(this.roots, "the top level");
+    return missing;
+  }
+
+  /** Tracks the folders VS Code will not ask for, which {@link undrawn} must not wait for. */
+  setCollapsed(node: Node, collapsed: boolean): void {
+    if (node.type !== "folder") {
+      return;
+    }
+    if (collapsed) {
+      this.collapsed.add(node.path);
+    } else {
+      this.collapsed.delete(node.path);
+    }
   }
 
   /** Milliseconds since VS Code last asked for rows, which is how drawing in progress shows. */
@@ -71,6 +120,8 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     this.roots = this.viewMode === "list" ? this.buildList() : this.buildTree();
     this.parents.clear();
     this.byKey.clear();
+    this.fetchedFolders = new Set();
+    this.itemized = new Set();
     this.index(this.roots, undefined);
     if (this.visible) {
       this._onDidChangeTreeData.fire(undefined);
@@ -142,11 +193,16 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       this.fetched = this.roots;
       return this.roots;
     }
-    return element.type === "folder" ? element.children : [];
+    if (element.type !== "folder") {
+      return [];
+    }
+    this.fetchedFolders.add(element);
+    return element.children;
   }
 
   getTreeItem(element: Node): vscode.TreeItem {
     this.lastFetchAt = Date.now();
+    this.itemized.add(element);
     if (element.type === "folder") {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
       if (element.uri) {

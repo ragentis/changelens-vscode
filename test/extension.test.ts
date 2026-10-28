@@ -57,6 +57,7 @@ function fsPath(name: string): string {
 }
 
 async function write(name: string, text: string): Promise<void> {
+  await fs.mkdir(path.dirname(fsPath(name)), { recursive: true });
   await fs.writeFile(fsPath(name), text, "utf8");
 }
 
@@ -83,6 +84,18 @@ function contextKey(name: string): unknown {
 }
 
 const treeView = () => must(editor.state.treeViews.at(-1), "the changes view");
+type Provider = editor.TreeViewOptions["treeDataProvider"];
+
+/** Fetches every row the way VS Code does after a refresh: children first, then each row's item. */
+function draw(provider: Provider, parent?: unknown): void {
+  const children = provider.getChildren(parent);
+  for (const child of children) {
+    provider.getTreeItem(child);
+  }
+  for (const child of children) {
+    draw(provider, child);
+  }
+}
 const output = () => must(editor.state.outputChannels.at(-1), "the output channel");
 const warnings = () => editor.state.shown.filter((shown) => shown.kind === "warning");
 
@@ -187,14 +200,97 @@ test("a show VS Code has already drawn from the current model is left alone", as
   // view visible. A refresh sent then cancels the fetches still in flight, and those folders are
   // drawn empty.
   treeView().setVisible(false);
-  provider.getChildren();
+  draw(provider);
   treeView().setVisible(true);
   vi.advanceTimersByTime(1_000);
 
   expect(rebuilt).toBe(0);
-  expect(output().lines.at(-1)).toBe(
+  expect(output().lines.at(-2)).toBe(
     "[info] The changes panel was shown with 1 file already drawn.",
   );
+  expect(output().lines.at(-1)).toBe("[debug] The changes panel drew 1 file.");
+});
+
+test("a refresh VS Code drew with a folder's rows missing is sent again", async () => {
+  await write("src/a.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+
+  let rebuilt = 0;
+  const provider = treeView().options.treeDataProvider;
+  provider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  editor.state.windowStateChanged.fire({ focused: true });
+  expect(rebuilt).toBe(1);
+
+  // VS Code fetched the top level, then abandoned the folder's fetch: the folder is drawn empty,
+  // which is what the user sees after a window sat idle. The provider cannot tell until VS Code
+  // has stopped asking.
+  const [folder] = provider.getChildren();
+  provider.getTreeItem(folder);
+  vi.advanceTimersByTime(200);
+  expect(rebuilt).toBe(1);
+  vi.advanceTimersByTime(100);
+  expect(rebuilt).toBe(2);
+  expect(output().lines.at(-1)).toBe(
+    "[warning] The changes panel drew 1 file without the rows of src, so it was rebuilt from the model (1 of 3).",
+  );
+
+  // The repeated refresh is checked the same way, and a full drawing ends it.
+  draw(provider);
+  vi.advanceTimersByTime(600);
+  expect(rebuilt).toBe(2);
+  expect(output().lines.at(-1)).toBe("[debug] The changes panel drew 1 file.");
+});
+
+test("a panel still short after three rebuilds is left alone until the next refresh", async () => {
+  await write("a.ts", "one\n");
+  await activate(context);
+  await agentWrote("a.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+
+  let rebuilt = 0;
+  treeView().options.treeDataProvider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  // VS Code never asks for the rows of any of them.
+  editor.state.windowStateChanged.fire({ focused: true });
+  vi.advanceTimersByTime(2_000);
+
+  expect(rebuilt).toBe(4);
+  expect(output().lines.slice(-4)).toEqual([
+    "[warning] The changes panel drew 1 file without the rows of the top level, so it was rebuilt from the model (1 of 3).",
+    "[warning] The changes panel drew 1 file without the rows of the top level, so it was rebuilt from the model (2 of 3).",
+    "[warning] The changes panel drew 1 file without the rows of the top level, so it was rebuilt from the model (3 of 3).",
+    "[warning] The changes panel still has no rows for the top level after 3 rebuilds, so it is left as drawn until the next refresh.",
+  ]);
+
+  vi.advanceTimersByTime(5_000);
+  expect(rebuilt).toBe(4);
+});
+
+test("a show reveals the active file only once the rebuilt rows are drawn", async () => {
+  await write("src/a.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  editor.setActiveEditor(editor.openDocument(fsPath("src/a.ts"), "one\ntwo\n"));
+  const revealed = treeView().revealed.length;
+  vi.useFakeTimers();
+  const provider = treeView().options.treeDataProvider;
+
+  treeView().setVisible(false);
+  treeView().setVisible(true);
+  expect(output().lines.at(-1)).toBe("[info] The changes panel was shown and rebuilt with 1 file.");
+
+  // A reveal sent while VS Code is still fetching the rebuilt rows would cancel the fetches.
+  expect(treeView().revealed).toHaveLength(revealed);
+  draw(provider);
+  vi.advanceTimersByTime(600);
+  expect(treeView().revealed).toHaveLength(revealed + 1);
 });
 
 test("a show waits for VS Code to stop fetching before it rebuilds stale rows", async () => {

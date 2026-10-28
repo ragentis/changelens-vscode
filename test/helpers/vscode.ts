@@ -184,6 +184,10 @@ export class OutputChannel {
     this.lines.push(line);
   }
 
+  debug(message: string): void {
+    this.lines.push(`[debug] ${message}`);
+  }
+
   info(message: string): void {
     this.lines.push(`[info] ${message}`);
   }
@@ -222,6 +226,8 @@ export class TreeView<T> {
   revealFailure: Error | undefined;
   disposed = false;
   private readonly visibility = new EventEmitter<{ visible: boolean }>();
+  private readonly collapsed = new EventEmitter<{ element: T }>();
+  private readonly expanded = new EventEmitter<{ element: T }>();
 
   constructor(
     readonly viewId: string,
@@ -230,6 +236,21 @@ export class TreeView<T> {
 
   readonly onDidChangeVisibility = (listener: (event: { visible: boolean }) => unknown) =>
     this.visibility.event(listener);
+
+  readonly onDidCollapseElement = (listener: (event: { element: T }) => unknown) =>
+    this.collapsed.event(listener);
+
+  readonly onDidExpandElement = (listener: (event: { element: T }) => unknown) =>
+    this.expanded.event(listener);
+
+  /** What the user's click on a folder's twistie sends. */
+  collapse(element: T): void {
+    this.collapsed.fire({ element });
+  }
+
+  expand(element: T): void {
+    this.expanded.fire({ element });
+  }
 
   reveal(node: T, options?: unknown): Promise<void> {
     this.revealed.push({ node, options });

@@ -258,6 +258,17 @@ test("a hidden panel keeps its rows current without repainting", async () => {
   provider.dispose();
 });
 
+/** Fetches every row the way VS Code does after a refresh: children first, then each row's item. */
+function draw(provider: ChangesTreeProvider, parent?: TreeNode): void {
+  const children = provider.getChildren(parent);
+  for (const child of children) {
+    provider.getTreeItem(child);
+  }
+  for (const child of children) {
+    draw(provider, child);
+  }
+}
+
 test("the panel is drawn once VS Code has fetched the current rows", async () => {
   await write("a.ts", "one\n");
   await model.initialize();
@@ -266,14 +277,46 @@ test("the panel is drawn once VS Code has fetched the current rows", async () =>
   expect(provider.isDrawn()).toBe(false);
 
   // Fetching the roots is how VS Code draws; a model change after that leaves the drawing stale.
-  provider.getChildren();
+  draw(provider);
   expect(provider.isDrawn()).toBe(true);
 
   await agentWrote("a.ts", "one\ntwo\n");
   expect(provider.isDrawn()).toBe(false);
 
-  provider.getChildren();
+  draw(provider);
   expect(provider.isDrawn()).toBe(true);
+  provider.dispose();
+});
+
+test("the rows VS Code has not fetched are named, except under a folder the user collapsed", async () => {
+  await write("docs/a.md", "one\n");
+  await write("src/ui/b.ts", "one\n");
+  await model.initialize();
+  await agentWrote("docs/a.md", "one\ntwo\n");
+  await agentWrote("src/ui/b.ts", "one\ntwo\n");
+
+  const provider = tree();
+  expect(provider.undrawn()).toEqual(["the top level"]);
+
+  // A fetch VS Code abandons never asks for the rows' items, so it does not count as drawing.
+  const [docs, ui] = provider.getChildren();
+  expect(provider.undrawn()).toEqual(["the top level"]);
+  provider.getTreeItem(must(docs, "docs"));
+  provider.getTreeItem(must(ui, "src/ui"));
+  expect(provider.undrawn()).toEqual(["docs", "src/ui"]);
+
+  draw(provider, docs);
+  expect(provider.undrawn()).toEqual(["src/ui"]);
+
+  // VS Code does not fetch under a collapsed folder, so its rows cannot be waited for.
+  provider.setCollapsed(must(ui, "src/ui"), true);
+  expect(provider.undrawn()).toEqual([]);
+  provider.setCollapsed(must(ui, "src/ui"), false);
+  expect(provider.undrawn()).toEqual(["src/ui"]);
+
+  // A rebuild replaces every row, and what was fetched before it no longer counts.
+  provider.refresh();
+  expect(provider.undrawn()).toEqual(["the top level"]);
   provider.dispose();
 });
 
