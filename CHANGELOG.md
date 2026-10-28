@@ -2,6 +2,14 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1](https://github.com/ragentis/changelens-vscode/compare/v0.4.0...v0.4.1) (2026-10-28)
+
+
+### Fixed
+
+* **ui:** let VS Code finish drawing a shown panel before touching it ([b8267f2](https://github.com/ragentis/changelens-vscode/commit/b8267f20c15098d714808bc841ded71ab2799090))
+* **ui:** send the changes panel one refresh on show instead of a backlog ([9362a3b](https://github.com/ragentis/changelens-vscode/commit/9362a3befc3789fe96a0cfd79f6f9ec121ddf843))
+
 ## [0.4.0](https://github.com/ragentis/changelens-vscode/compare/v0.3.2...v0.4.0) (2026-10-09)
 
 
