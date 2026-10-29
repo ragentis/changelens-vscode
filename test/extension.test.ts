@@ -273,6 +273,31 @@ test("a panel still short after three rebuilds is left alone until the next refr
   expect(rebuilt).toBe(4);
 });
 
+test("a focus rebuild replaces every row and restores the selection once they are drawn", async () => {
+  await write("src/a.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+  const provider = treeView().options.treeDataProvider;
+  const [folder] = provider.getChildren();
+  const idBefore = provider.getTreeItem(folder).id;
+  treeView().selection = [folder];
+
+  editor.state.windowStateChanged.fire({ focused: true });
+
+  // VS Code matches rows by id; a row it cannot match is drawn afresh rather than reused with
+  // whatever state its old node was left in.
+  const [rebuilt] = provider.getChildren();
+  expect(provider.getTreeItem(rebuilt).id).not.toBe(idBefore);
+  expect(treeView().revealed).toEqual([]);
+
+  draw(provider);
+  vi.advanceTimersByTime(600);
+  const [reveal] = treeView().revealed.slice(-1);
+  expect(reveal?.node).toBe(rebuilt);
+  expect(reveal?.options).toEqual({ select: true, focus: false });
+});
+
 test("a show reveals the active file only once the rebuilt rows are drawn", async () => {
   await write("src/a.ts", "one\n");
   await activate(context);

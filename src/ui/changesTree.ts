@@ -12,6 +12,9 @@ const OPAQUE_LABELS: Record<OpaqueReason, string> = {
 
 type Node = FolderNode | FileNode;
 
+/** How soon after a fetch a reported collapse is taken as VS Code's own rather than the user's. */
+const SETTLING_MS = 300;
+
 interface FolderNode {
   type: "folder";
   label: string;
@@ -33,6 +36,9 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private roots: Node[] = [];
   private readonly parents = new Map<Node, Node>();
   private readonly byKey = new Map<string, FileNode>();
+  private readonly byPath = new Map<string, FolderNode>();
+  /** Part of every row id; a bump makes VS Code discard the nodes it holds instead of reusing them. */
+  private generation = 0;
   private visible = true;
   /** The roots VS Code last asked for, which is what it has drawn. */
   private fetched: Node[] | undefined;
@@ -103,11 +109,29 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     if (node.type !== "folder") {
       return;
     }
-    if (collapsed) {
-      this.collapsed.add(node.path);
-    } else {
+    if (!collapsed) {
       this.collapsed.delete(node.path);
+      return;
     }
+    // VS Code collapses a folder itself when it gives up on getting its rows, and reports that
+    // the same way as a click. Honouring it would keep the folder collapsed on every rebuild.
+    if (this.sinceLastFetch() < SETTLING_MS) {
+      return;
+    }
+    this.collapsed.add(node.path);
+  }
+
+  /** A key for the row that survives a rebuild, which replaces every node. */
+  selectionKey(node: Node | undefined): string | undefined {
+    if (!node) {
+      return undefined;
+    }
+    return node.type === "folder" ? `d:${node.path}` : `f:${node.file.key}`;
+  }
+
+  nodeForSelection(key: string): Node | undefined {
+    const value = key.slice(2);
+    return key.startsWith("d:") ? this.byPath.get(value) : this.byKey.get(value);
   }
 
   /** Milliseconds since VS Code last asked for rows, which is how drawing in progress shows. */
@@ -117,9 +141,25 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
 
   /** Rebuilds the rows from the model, and repaints them when the panel is on screen. */
   refresh(): void {
+    this.build();
+  }
+
+  /**
+   * Rebuilds with rows VS Code cannot match to the ones it drew, so it discards every node it
+   * holds instead of reusing them. A reused node keeps what VS Code left on it: a folder it
+   * collapsed after giving up on its rows stays collapsed and is never fetched again. The cost is the
+   * selection, which the caller restores.
+   */
+  rebuild(): void {
+    this.generation += 1;
+    this.build();
+  }
+
+  private build(): void {
     this.roots = this.viewMode === "list" ? this.buildList() : this.buildTree();
     this.parents.clear();
     this.byKey.clear();
+    this.byPath.clear();
     this.fetchedFolders = new Set();
     this.itemized = new Set();
     this.index(this.roots, undefined);
@@ -135,6 +175,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
         this.parents.set(node, parent);
       }
       if (node.type === "folder") {
+        this.byPath.set(node.path, node);
         this.index(node.children, node);
       } else {
         this.byKey.set(node.file.key, node);
@@ -204,7 +245,11 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     this.lastFetchAt = Date.now();
     this.itemized.add(element);
     if (element.type === "folder") {
-      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
+      const state = this.collapsed.has(element.path)
+        ? vscode.TreeItemCollapsibleState.Collapsed
+        : vscode.TreeItemCollapsibleState.Expanded;
+      const item = new vscode.TreeItem(element.label, state);
+      item.id = `${this.generation}/d/${element.path}`;
       if (element.uri) {
         item.resourceUri = toTreeUri(element.uri);
       }
@@ -215,6 +260,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
 
     const file = element.file;
     const item = new vscode.TreeItem(toTreeUri(file.uri), vscode.TreeItemCollapsibleState.None);
+    item.id = `${this.generation}/f/${file.key}`;
     item.label = basename(file.uri.path);
     item.description = describe(file, this.viewMode === "list");
     item.contextValue = "changelens.file";

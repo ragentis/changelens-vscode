@@ -118,6 +118,7 @@ export class MarkdownString {
 }
 
 export class TreeItem {
+  id: string | undefined;
   label: string | undefined;
   resourceUri: Uri | undefined;
   description: string | undefined;
@@ -214,13 +215,15 @@ export interface TreeViewOptions {
     onDidChangeTreeData?: (listener: (element: unknown) => unknown) => { dispose: () => void };
     /** What VS Code calls to draw; a test calls them to stand in for its fetching. */
     getChildren: (element?: unknown) => unknown[];
-    getTreeItem: (element: unknown) => unknown;
+    getTreeItem: (element: unknown) => TreeItem;
   };
 }
 
 export class TreeView<T> {
   /** Starts on screen; `setVisible` is how a test hides the panel. */
   visible = true;
+  /** What the user has selected; a test sets it, as VS Code would on a click. */
+  selection: T[] = [];
   readonly revealed: { node: T; options: unknown }[] = [];
   /** Set to have `reveal` reject, as it does when the drawn tree has no such row. */
   revealFailure: Error | undefined;

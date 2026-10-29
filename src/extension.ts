@@ -103,16 +103,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const pendingCount = () => countFiles(model.files.length);
 
-  const revealActiveFile = () => {
+  let settleTimer: NodeJS.Timeout | undefined;
+  let showPending = false;
+  let revealPending = false;
+  let reselect: string | undefined;
+  let rebuilds = 0;
+
+  /** Replaces every row VS Code holds, remembering the selection for once the rows are drawn. */
+  const repair = () => {
+    reselect ??= tree.selectionKey(treeView.selection[0]);
+    tree.rebuild();
+  };
+
+  const revealActiveFile = (): boolean => {
     // `reveal` opens the view when it is hidden, which would pull the sidebar over whatever the
     // user is doing, so this only runs once the panel is already on screen.
     if (!treeView.visible || !model.config.autoReveal) {
-      return;
+      return false;
     }
     const active = vscode.window.activeTextEditor?.document.uri;
     const node = active ? tree.nodeForKey(fileKeyOf(active)) : undefined;
     if (!active || !node) {
-      return;
+      return false;
     }
     // Selection follows the editor; focus must not, or it would leave the file being typed in.
     void treeView.reveal(node, { select: true, focus: false }).then(undefined, (error: unknown) => {
@@ -122,14 +134,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.warn(
         `The changes panel had no row for ${vscode.workspace.asRelativePath(active)}, so it was rebuilt from the model. ${detail}`,
       );
-      tree.refresh();
+      repair();
     });
+    return true;
   };
 
-  let settleTimer: NodeJS.Timeout | undefined;
-  let showPending = false;
-  let revealPending = false;
-  let rebuilds = 0;
+  const restoreSelection = () => {
+    const node = reselect === undefined ? undefined : tree.nodeForSelection(reselect);
+    reselect = undefined;
+    if (node) {
+      void treeView.reveal(node, { select: true, focus: false }).then(undefined, () => undefined);
+    }
+  };
 
   /**
    * Checks what VS Code drew once it has settled. A refresh or a reveal sent while VS Code is
@@ -167,7 +183,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } else {
         // A hidden panel is sent no refreshes, so a show usually finds the rows VS Code drew
         // before the panel was hidden.
-        tree.refresh();
+        repair();
         output.info(`The changes panel was shown and rebuilt with ${pendingCount()}.`);
         return;
       }
@@ -177,8 +193,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       output.debug(`The changes panel drew ${pendingCount()}.`);
       if (revealPending) {
         revealPending = false;
-        revealActiveFile();
+        if (revealActiveFile()) {
+          reselect = undefined;
+        }
       }
+      restoreSelection();
       return;
     }
     // VS Code has fetched the rows it was going to, and some folders got none: those are drawn
@@ -187,6 +206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (rebuilds >= REBUILD_LIMIT) {
       rebuilds = 0;
       revealPending = false;
+      reselect = undefined;
       output.warn(
         `The changes panel still has no rows for ${rows} after ${REBUILD_LIMIT} rebuilds, so it is left as drawn until the next refresh.`,
       );
@@ -196,7 +216,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output.warn(
       `The changes panel drew ${pendingCount()} without the rows of ${rows}, so it was rebuilt from the model (${rebuilds} of ${REBUILD_LIMIT}).`,
     );
-    tree.refresh();
+    repair();
   };
 
   let publishedViewMode: ViewMode | undefined;
@@ -234,6 +254,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         settleTimer = undefined;
         showPending = false;
         revealPending = false;
+        reselect = undefined;
       }
     }),
     // Every refresh the panel sends is checked against what VS Code then fetched.
@@ -244,7 +265,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // A refresh can also be lost while the window sits idle with the panel on screen, where no
       // show follows to rebuild it.
       if (focused && treeView.visible) {
-        tree.refresh();
+        repair();
         output.info(
           `The window regained focus and the changes panel was rebuilt with ${pendingCount()}.`,
         );

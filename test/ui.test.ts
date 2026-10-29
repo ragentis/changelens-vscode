@@ -308,15 +308,61 @@ test("the rows VS Code has not fetched are named, except under a folder the user
   draw(provider, docs);
   expect(provider.undrawn()).toEqual(["src/ui"]);
 
-  // VS Code does not fetch under a collapsed folder, so its rows cannot be waited for.
+  // VS Code collapses a folder itself when it abandons the fetch of its rows, and reports that
+  // like a click. Only a collapse once the fetching has stopped is the user's.
+  vi.useFakeTimers();
+  provider.setCollapsed(must(ui, "src/ui"), true);
+  expect(provider.undrawn()).toEqual(["src/ui"]);
+  vi.advanceTimersByTime(300);
   provider.setCollapsed(must(ui, "src/ui"), true);
   expect(provider.undrawn()).toEqual([]);
+  // VS Code does not fetch under a collapsed folder, so its rows cannot be waited for, and the
+  // next build asks for the folder collapsed so the user's choice survives it.
+  expect(provider.getTreeItem(must(ui, "src/ui")).collapsibleState).toBe(
+    editor.TreeItemCollapsibleState.Collapsed,
+  );
   provider.setCollapsed(must(ui, "src/ui"), false);
   expect(provider.undrawn()).toEqual(["src/ui"]);
 
   // A rebuild replaces every row, and what was fetched before it no longer counts.
   provider.refresh();
   expect(provider.undrawn()).toEqual(["the top level"]);
+  provider.dispose();
+});
+
+test("a refresh keeps the row ids VS Code matches on, and a rebuild changes every one", async () => {
+  await write("src/a.ts", "one\n");
+  await model.initialize();
+  await agentWrote("src/a.ts", "one\ntwo\n");
+
+  const provider = tree();
+  const ids = () => {
+    const [folder] = provider.getChildren();
+    const [file] = provider.getChildren(folder);
+    return [
+      provider.getTreeItem(must(folder, "src")).id,
+      provider.getTreeItem(must(file, "a.ts")).id,
+    ];
+  };
+  const before = ids();
+  expect(before[0]).toContain("src");
+
+  // A refresh lets VS Code keep its nodes, with their selection and collapse state.
+  provider.refresh();
+  expect(ids()).toEqual(before);
+
+  // A rebuild is for rows VS Code drew wrong: it must not reuse a node that was left collapsed
+  // or empty, so none of the ids match.
+  provider.rebuild();
+  const after = ids();
+  expect(after).not.toEqual(before);
+  expect(new Set([...before, ...after]).size).toBe(4);
+
+  // The selection is restored by key, since the nodes themselves are new.
+  const [folder] = provider.getChildren();
+  const selected = must(provider.selectionKey(folder), "the key");
+  provider.rebuild();
+  expect(provider.nodeForSelection(selected)).toBe(provider.getChildren()[0]);
   provider.dispose();
 });
 
