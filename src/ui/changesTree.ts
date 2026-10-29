@@ -67,6 +67,11 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     this.visible = visible;
   }
 
+  /** Whether VS Code has ever asked for the rows, which it first does when the panel is shown. */
+  everFetched(): boolean {
+    return this.fetched !== undefined;
+  }
+
   /** Whether VS Code has fetched every row of the current build it would draw. */
   isDrawn(): boolean {
     return this.undrawn().length === 0;

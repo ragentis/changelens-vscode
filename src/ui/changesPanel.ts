@@ -45,7 +45,7 @@ export class ChangesPanel implements vscode.Disposable {
       this.view,
       this.view.onDidChangeVisibility(({ visible }) => this.onDidChangeVisibility(visible)),
       // Every refresh the panel sends is checked against what VS Code then fetched.
-      this.tree.onDidChangeTreeData(() => this.settleLater(FETCH_QUIET_MS)),
+      this.tree.onDidChangeTreeData(() => this.settleLater()),
       this.view.onDidCollapseElement(({ element }) => this.tree.setCollapsed(element, true)),
       this.view.onDidExpandElement(({ element }) => this.tree.setCollapsed(element, false)),
       vscode.window.onDidChangeWindowState(({ focused }) => {
@@ -125,7 +125,10 @@ export class ChangesPanel implements vscode.Disposable {
     this.tree.setVisible(visible);
     if (visible) {
       this.showPending = true;
-      this.settleLater(0);
+      // On the first show VS Code builds the tree itself, and those fetches start after it has
+      // reported the view visible. A rebuild sent before they are done cancels them, and the
+      // folders they were for are drawn empty, so the check waits for them to come and go.
+      this.settleLater(!this.tree.everFetched());
       return;
     }
     clearTimeout(this.settleTimer);
@@ -136,27 +139,26 @@ export class ChangesPanel implements vscode.Disposable {
   }
 
   /**
-   * Runs {@link settled} once VS Code has stopped asking for rows, or at the deadline. `afterMs`
-   * is how long to wait before the first look: a refresh needs VS Code to have started fetching,
-   * while a show finds VS Code's own fetches already recorded.
+   * Runs {@link settled} once VS Code has stopped asking for rows, or at the deadline. The first
+   * look comes after a quiet period, which gives VS Code time to start fetching. With `awaitFetch`
+   * it also waits for VS Code to have asked for rows at all since now.
    */
-  private settleLater(afterMs: number): void {
+  private settleLater(awaitFetch = false): void {
     clearTimeout(this.settleTimer);
-    const deadline = Date.now() + SETTLE_LIMIT_MS;
+    const since = Date.now();
+    const deadline = since + SETTLE_LIMIT_MS;
     const wait = () => {
       this.settleTimer = undefined;
-      const remaining = FETCH_QUIET_MS - this.tree.sinceLastFetch();
-      if (remaining > 0 && Date.now() < deadline) {
-        this.settleTimer = setTimeout(wait, remaining);
+      const sinceLastFetch = this.tree.sinceLastFetch();
+      const fetched = !awaitFetch || Date.now() - sinceLastFetch >= since;
+      const remaining = FETCH_QUIET_MS - sinceLastFetch;
+      if ((remaining > 0 || !fetched) && Date.now() < deadline) {
+        this.settleTimer = setTimeout(wait, remaining > 0 ? remaining : FETCH_QUIET_MS);
         return;
       }
       this.settled();
     };
-    if (afterMs > 0) {
-      this.settleTimer = setTimeout(wait, afterMs);
-    } else {
-      wait();
-    }
+    this.settleTimer = setTimeout(wait, FETCH_QUIET_MS);
   }
 
   private settled(): void {
@@ -170,7 +172,9 @@ export class ChangesPanel implements vscode.Disposable {
         // A hidden panel is sent no refreshes, so a show usually finds the rows VS Code drew
         // before the panel was hidden.
         this.repair();
-        this.log.info(`The changes panel was shown and rebuilt with ${this.pendingCount()}.`);
+        this.log.info(
+          `The changes panel was shown and rebuilt with ${this.pendingCount()}, as VS Code had no rows for ${missing.join(", ")}.`,
+        );
         return;
       }
     }

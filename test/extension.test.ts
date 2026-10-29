@@ -304,18 +304,69 @@ test("a show reveals the active file only once the rebuilt rows are drawn", asyn
   await agentWrote("src/a.ts", "one\ntwo\n");
   editor.setActiveEditor(editor.openDocument(fsPath("src/a.ts"), "one\ntwo\n"));
   const revealed = treeView().revealed.length;
-  vi.useFakeTimers();
   const provider = treeView().options.treeDataProvider;
+  draw(provider);
 
   treeView().setVisible(false);
+  await agentWrote("src/a.ts", "one\ntwo\nthree\n");
+  vi.useFakeTimers();
   treeView().setVisible(true);
-  expect(output().lines.at(-1)).toBe("[info] The changes panel was shown and rebuilt with 1 file.");
+  vi.advanceTimersByTime(300);
+  expect(output().lines.at(-1)).toBe(
+    "[info] The changes panel was shown and rebuilt with 1 file, as VS Code had no rows for the top level.",
+  );
 
   // A reveal sent while VS Code is still fetching the rebuilt rows would cancel the fetches.
   expect(treeView().revealed).toHaveLength(revealed);
   draw(provider);
   vi.advanceTimersByTime(600);
   expect(treeView().revealed).toHaveLength(revealed + 1);
+});
+
+test("the first show waits for VS Code's own fetches before it judges the panel", async () => {
+  await write("src/a.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+
+  let rebuilt = 0;
+  const provider = treeView().options.treeDataProvider;
+  provider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  // Nothing has asked for rows yet: VS Code builds the tree itself on the first show, starting
+  // after it reports the view visible. A rebuild sent before then cancels its fetches.
+  treeView().setVisible(false);
+  treeView().setVisible(true);
+  vi.advanceTimersByTime(1_000);
+  expect(rebuilt).toBe(0);
+
+  draw(provider);
+  vi.advanceTimersByTime(600);
+  expect(rebuilt).toBe(0);
+  expect(output().lines.at(-2)).toBe(
+    "[info] The changes panel was shown with 1 file already drawn.",
+  );
+});
+
+test("a first show VS Code never draws is rebuilt at the deadline", async () => {
+  await write("src/a.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+
+  let rebuilt = 0;
+  treeView().options.treeDataProvider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  treeView().setVisible(false);
+  treeView().setVisible(true);
+  vi.advanceTimersByTime(2_900);
+  expect(rebuilt).toBe(0);
+  vi.advanceTimersByTime(100);
+  expect(rebuilt).toBe(1);
 });
 
 test("a show waits for VS Code to stop fetching before it rebuilds stale rows", async () => {
@@ -345,7 +396,9 @@ test("a show waits for VS Code to stop fetching before it rebuilds stale rows", 
 
   vi.advanceTimersByTime(200);
   expect(rebuilt).toBe(1);
-  expect(output().lines.at(-1)).toBe("[info] The changes panel was shown and rebuilt with 1 file.");
+  expect(output().lines.at(-1)).toBe(
+    "[info] The changes panel was shown and rebuilt with 1 file, as VS Code had no rows for the top level.",
+  );
 });
 
 test("a hidden panel is never pulled open by the editor moving", async () => {
@@ -372,6 +425,7 @@ test("the panel is rebuilt from the model each time it is shown", async () => {
     rebuilt += 1;
   });
 
+  draw(treeView().options.treeDataProvider);
   treeView().setVisible(false);
   expect(rebuilt).toBe(0);
 
@@ -380,11 +434,15 @@ test("the panel is rebuilt from the model each time it is shown", async () => {
   // sends exactly one, built from the model as it is then.
   await agentWrote("a.ts", "one\ntwo\nthree\n");
   expect(rebuilt).toBe(0);
+  vi.useFakeTimers();
 
   treeView().setVisible(true);
+  vi.advanceTimersByTime(300);
   expect(rebuilt).toBe(1);
   // A panel that still draws too few rows after this needs the log to say the rebuild ran.
-  expect(output().lines.at(-1)).toBe("[info] The changes panel was shown and rebuilt with 1 file.");
+  expect(output().lines.at(-1)).toBe(
+    "[info] The changes panel was shown and rebuilt with 1 file, as VS Code had no rows for the top level.",
+  );
 });
 
 test("a panel left on screen is rebuilt when the window regains focus", async () => {
