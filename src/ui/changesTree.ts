@@ -11,8 +11,9 @@ const OPAQUE_LABELS: Record<OpaqueReason, string> = {
 };
 
 type Node = FolderNode | FileNode;
+export type ChangesNode = Node;
 
-/** How soon after a fetch a reported collapse is taken as VS Code's own rather than the user's. */
+/** How soon after VS Code last asked for rows a reported collapse is taken as its own, not the user's. */
 const SETTLING_MS = 300;
 
 interface FolderNode {
@@ -44,8 +45,6 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   private fetched: Node[] | undefined;
   /** The folders of the current rows whose children VS Code has asked for since the rebuild. */
   private fetchedFolders = new Set<FolderNode>();
-  /** The rows VS Code has asked to draw since the rebuild. */
-  private itemized = new Set<Node>();
   /** Folder paths the user collapsed, whose children VS Code does not ask for on a rebuild. */
   private readonly collapsed = new Set<string>();
   private lastFetchAt = 0;
@@ -76,31 +75,26 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
   /**
    * The folders whose rows VS Code has not fetched since the last rebuild, or `the top level`
    * when it never asked for the rows at all. VS Code fetches the children of every expanded folder
-   * after a refresh, so a folder missing here is drawn empty. A request VS Code abandons part-way
-   * does not reach `getTreeItem` for the rows, which is what tells it from a finished one.
+   * after a refresh, so a folder missing here is drawn empty or left collapsed.
    */
   undrawn(): string[] {
     if (this.fetched !== this.roots) {
       return ["the top level"];
     }
     const missing: string[] = [];
-    const visit = (nodes: Node[], within: string): void => {
-      if (!nodes.every((node) => this.itemized.has(node))) {
-        missing.push(within);
-        return;
-      }
+    const visit = (nodes: Node[]): void => {
       for (const node of nodes) {
         if (node.type !== "folder" || this.collapsed.has(node.path)) {
           continue;
         }
         if (this.fetchedFolders.has(node)) {
-          visit(node.children, node.path);
+          visit(node.children);
         } else {
           missing.push(node.path);
         }
       }
     };
-    visit(this.roots, "the top level");
+    visit(this.roots);
     return missing;
   }
 
@@ -161,7 +155,6 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     this.byKey.clear();
     this.byPath.clear();
     this.fetchedFolders = new Set();
-    this.itemized = new Set();
     this.index(this.roots, undefined);
     if (this.visible) {
       this._onDidChangeTreeData.fire(undefined);
@@ -243,7 +236,6 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
 
   getTreeItem(element: Node): vscode.TreeItem {
     this.lastFetchAt = Date.now();
-    this.itemized.add(element);
     if (element.type === "folder") {
       const state = this.collapsed.has(element.path)
         ? vscode.TreeItemCollapsibleState.Collapsed

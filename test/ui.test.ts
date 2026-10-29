@@ -298,11 +298,7 @@ test("the rows VS Code has not fetched are named, except under a folder the user
   const provider = tree();
   expect(provider.undrawn()).toEqual(["the top level"]);
 
-  // A fetch VS Code abandons never asks for the rows' items, so it does not count as drawing.
   const [docs, ui] = provider.getChildren();
-  expect(provider.undrawn()).toEqual(["the top level"]);
-  provider.getTreeItem(must(docs, "docs"));
-  provider.getTreeItem(must(ui, "src/ui"));
   expect(provider.undrawn()).toEqual(["docs", "src/ui"]);
 
   draw(provider, docs);

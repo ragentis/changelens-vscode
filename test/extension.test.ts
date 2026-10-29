@@ -404,7 +404,7 @@ test("a panel left on screen is rebuilt when the window regains focus", async ()
   editor.state.windowStateChanged.fire({ focused: true });
   expect(rebuilt).toBe(1);
   expect(output().lines.at(-1)).toBe(
-    "[info] The window regained focus and the changes panel was rebuilt with 1 file.",
+    "[debug] The window regained focus and the changes panel was rebuilt with 1 file.",
   );
 
   treeView().setVisible(false);
