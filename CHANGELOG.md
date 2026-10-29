@@ -2,6 +2,14 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2](https://github.com/ragentis/changelens-vscode/compare/v0.4.1...v0.4.2) (2026-10-29)
+
+
+### Fixed
+
+* **ui:** check what VS Code drew after each panel refresh and send it again ([4f9dff5](https://github.com/ragentis/changelens-vscode/commit/4f9dff5f3dae86c75046537250c59e30ffcdd129))
+* **ui:** leave review decorations alone until the document reloads ([eea4c2f](https://github.com/ragentis/changelens-vscode/commit/eea4c2fe6277792dad72693c782c69bc4668eb6d))
+
 ## [0.4.1](https://github.com/ragentis/changelens-vscode/compare/v0.4.0...v0.4.1) (2026-10-28)
 
 
