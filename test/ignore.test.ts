@@ -148,6 +148,21 @@ test("re-including the directory itself does put its files back", () => {
   expect(matcher.ignores("build/keep.txt")).toBe(false);
 });
 
+test("excluding a directory's contents still lets a negation re-include one file", () => {
+  const matcher = gitignoring(
+    ".vscode/*",
+    "!.vscode/extensions.json",
+    "!.vscode/settings.json",
+    ".idea",
+  );
+  expect(matcher.ignores(".vscode/settings.json")).toBe(false);
+  expect(matcher.ignores(".vscode/extensions.json")).toBe(false);
+  expect(matcher.ignores(".vscode/launch.json")).toBe(true);
+  // A subdirectory is part of the excluded contents, so its files stay out.
+  expect(matcher.ignores(".vscode/sub/settings.json")).toBe(true);
+  expect(matcher.ignores(".idea/workspace.xml")).toBe(true);
+});
+
 test("an excluded ancestor decides at any depth", () => {
   const matcher = gitignoring("build/", "!build/deep/keep.txt");
   expect(matcher.ignores("build/deep/keep.txt")).toBe(true);

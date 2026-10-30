@@ -1,5 +1,6 @@
 interface Rule {
-  regex: RegExp;
+  file: RegExp;
+  directory: RegExp;
   negated: boolean;
 }
 
@@ -154,11 +155,12 @@ function compile(pattern: string, braces: boolean): Rule | null {
     return null;
   }
 
-  const prefix = anchored ? "^" : "^(?:.*/)?";
-  // `ignores` receives files, so a directory-only rule matches descendants, not a same-name file.
+  const base = `${anchored ? "^" : "^(?:.*/)?"}${globToRegexBody(raw, braces)}`;
+  // A directory-only rule matches the files beneath the directory, not a file of the same name.
   const suffix = directoryOnly ? "/.*$" : "(?:/.*)?$";
   return {
-    regex: new RegExp(`${prefix}${globToRegexBody(raw, braces)}${suffix}`, CASE_FLAGS),
+    file: new RegExp(`${base}${suffix}`, CASE_FLAGS),
+    directory: new RegExp(`${base}$`, CASE_FLAGS),
     negated,
   };
 }
@@ -191,22 +193,22 @@ export class IgnoreMatcher {
   /** `relativePath` must be workspace-relative and use forward slashes. */
   ignores(relativePath: string): boolean {
     // Git never descends into an excluded directory, so no later rule can re-include something
-    // beneath one. The trailing slash asks each rule about the directory rather than a file of
-    // the same name, which is what distinguishes `!build/keep.txt` from `!build/`.
+    // beneath one. An ancestor must match a rule as a whole name, so `dir/*` excludes what is in
+    // `dir` but not `dir` itself, and `!dir/keep.txt` can still re-include one of its files.
     const segments = relativePath.split("/");
     for (let depth = 1; depth < segments.length; depth++) {
-      if (this.matches(`${segments.slice(0, depth).join("/")}/`)) {
+      if (this.matches(segments.slice(0, depth).join("/"), "directory")) {
         return true;
       }
     }
-    return this.matches(relativePath);
+    return this.matches(relativePath, "file");
   }
 
   /** The plain last-match-wins pass over one candidate path. */
-  private matches(candidate: string): boolean {
+  private matches(candidate: string, kind: "file" | "directory"): boolean {
     let ignored = false;
     for (const rule of this.rules) {
-      if (rule.regex.test(candidate)) {
+      if (rule[kind].test(candidate)) {
         ignored = !rule.negated;
       }
     }
