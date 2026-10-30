@@ -2,6 +2,15 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3](https://github.com/ragentis/changelens-vscode/compare/v0.4.2...v0.4.3) (2026-10-30)
+
+
+### Fixed
+
+* **tracking:** update ignore rules to handle directory exclusions correctly ([6b3a76c](https://github.com/ragentis/changelens-vscode/commit/6b3a76ce947f06cb6bbfe58bd1e044132b4dd198))
+* **ui:** give repaired panels rows VS Code cannot reuse ([f68cb49](https://github.com/ragentis/changelens-vscode/commit/f68cb494831c85b02bba96abf89cbca371eca9c9))
+* **ui:** let VS Code draw a first-shown panel before judging it ([081aca1](https://github.com/ragentis/changelens-vscode/commit/081aca12d0f1700b5914dcecee60674e16ef6d95))
+
 ## [0.4.2](https://github.com/ragentis/changelens-vscode/compare/v0.4.1...v0.4.2) (2026-10-29)
 
 
