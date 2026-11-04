@@ -33,6 +33,7 @@ export const MIRRORS = new Map([
   ["scss", "changelens-scss"],
   ["less", "changelens-less"],
   ["vue", "changelens-vue"],
+  ["astro", "changelens-astro"],
   ["mdx", "changelens-mdx"],
   ["yaml", "changelens-yaml"],
   ["dockercompose", "changelens-dockercompose"],

@@ -380,6 +380,7 @@ const LANGUAGE_IDS = new Map([
   [".scss", "scss"],
   [".less", "less"],
   [".vue", "vue"],
+  [".astro", "astro"],
   [".mdx", "mdx"],
   [".yaml", "yaml"],
   [".yml", "yaml"],

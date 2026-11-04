@@ -127,6 +127,13 @@
         "configuration": "./syntaxes/markup-language-configuration.json"
       },
       {
+        "id": "changelens-astro",
+        "aliases": [
+          "Astro (ChangeLens review)"
+        ],
+        "configuration": "./syntaxes/markup-language-configuration.json"
+      },
+      {
         "id": "changelens-mdx",
         "aliases": [
           "MDX (ChangeLens review)"
@@ -212,6 +219,11 @@
         "language": "changelens-vue",
         "scopeName": "text.html.changelens.vue",
         "path": "./syntaxes/changelens-vue.tmLanguage.json"
+      },
+      {
+        "language": "changelens-astro",
+        "scopeName": "source.changelens.astro",
+        "path": "./syntaxes/changelens-astro.tmLanguage.json"
       },
       {
         "language": "changelens-mdx",

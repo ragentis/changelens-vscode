@@ -1,0 +1,9 @@
+{
+  "name": "Astro (ChangeLens review)",
+  "scopeName": "source.changelens.astro",
+  "patterns": [
+    {
+      "include": "source.astro"
+    }
+  ]
+}

@@ -64,6 +64,7 @@ test("retags every mirrored language", async () => {
     ["styles.scss", "changelens-scss"],
     ["styles.less", "changelens-less"],
     ["Widget.vue", "changelens-vue"],
+    ["Page.astro", "changelens-astro"],
     ["notes.mdx", "changelens-mdx"],
     ["pipeline.yaml", "changelens-yaml"],
     ["pipeline.yml", "changelens-yaml"],
