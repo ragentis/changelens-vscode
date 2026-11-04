@@ -15,6 +15,19 @@ const SCOPE_SETTINGS = [
   "changelens.maxFileSizeKb",
 ];
 
+/**
+ * VS Code matches a `RelativePattern` watcher on the path alone, so a review document's change
+ * event reaches the watcher of the file it stands for. Acting on it would rescope on every model
+ * change for as long as a `.gitignore` review is open, and each rescope changes the model again.
+ */
+function onDisk(handler: () => void): (uri: vscode.Uri) => void {
+  return (uri) => {
+    if (uri.scheme === "file") {
+      handler();
+    }
+  };
+}
+
 export interface WorkspaceWatcherOptions {
   onError?: (message: string, error?: unknown) => void;
 }
@@ -124,10 +137,11 @@ export class WorkspaceWatcher implements vscode.Disposable {
       const ignore = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(folder, ".gitignore"),
       );
-      const rescope = () =>
+      const rescope = onDisk(() =>
         this.schedule("git:ignore", REPO_DEBOUNCE_MS, "A .gitignore change", () =>
           this.model.rescope("gitignore"),
-        );
+        ),
+      );
       this.repoWatchers.push(
         ignore,
         ignore.onDidChange(rescope),
@@ -147,10 +161,11 @@ export class WorkspaceWatcher implements vscode.Disposable {
           return;
         }
 
-        const handler = () =>
+        const handler = onDisk(() =>
           this.schedule(`git:head:${fsPath}`, REPO_DEBOUNCE_MS, "A Git change", () =>
             this.onGitMovement(fsPath),
-          );
+          ),
+        );
         for (const target of new Set([head, reflog])) {
           // These may live outside the workspace, as a worktree's do; the exact pattern still
           // watches them.

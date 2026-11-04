@@ -311,6 +311,28 @@ test("editing the gitignore rescopes, on the longer repository debounce", async 
   expect(rescope).toHaveBeenCalledTimes(1);
 });
 
+test("a review document's change event is not taken for an edit of the file it stands for", async () => {
+  const rescope = vi.spyOn(model, "rescope").mockResolvedValue();
+  watcher.activate();
+  await advance(0);
+
+  // VS Code matches a RelativePattern watcher on the path alone, so the review document's event
+  // arrives here too. Rescoping on it would change the model, which changes the review document,
+  // for as long as the review stays open.
+  must(editor.watchersFor(".gitignore").at(-1), "the gitignore watcher").fire(
+    "change",
+    uri(".gitignore").with({ scheme: "changelens-review" }),
+  );
+  must(editor.watchersFor("HEAD").at(-1), "the HEAD watcher").fire(
+    "change",
+    uri(".git/HEAD").with({ scheme: "changelens-review" }),
+  );
+
+  await advance(1_000);
+  expect(rescope).not.toHaveBeenCalled();
+  expect(movements).toEqual([]);
+});
+
 test("editor file operations reach the handler that adopts them", () => {
   const created = vi.spyOn(model, "handleEditorCreate").mockResolvedValue();
   const deleted = vi.spyOn(model, "handleEditorDelete").mockResolvedValue();
