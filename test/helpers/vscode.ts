@@ -229,6 +229,7 @@ export class TreeView<T> {
   revealFailure: Error | undefined;
   disposed = false;
   private readonly visibility = new EventEmitter<{ visible: boolean }>();
+  private readonly selectionChanged = new EventEmitter<{ selection: T[] }>();
   private readonly collapsed = new EventEmitter<{ element: T }>();
   private readonly expanded = new EventEmitter<{ element: T }>();
 
@@ -240,11 +241,20 @@ export class TreeView<T> {
   readonly onDidChangeVisibility = (listener: (event: { visible: boolean }) => unknown) =>
     this.visibility.event(listener);
 
+  readonly onDidChangeSelection = (listener: (event: { selection: T[] }) => unknown) =>
+    this.selectionChanged.event(listener);
+
   readonly onDidCollapseElement = (listener: (event: { element: T }) => unknown) =>
     this.collapsed.event(listener);
 
   readonly onDidExpandElement = (listener: (event: { element: T }) => unknown) =>
     this.expanded.event(listener);
+
+  /** What the user's click on a row sends. */
+  select(selection: T[]): void {
+    this.selection = selection;
+    this.selectionChanged.fire({ selection });
+  }
 
   /** What the user's click on a folder's twistie sends. */
   collapse(element: T): void {

@@ -45,7 +45,14 @@ export class ChangesPanel implements vscode.Disposable {
       this.view,
       this.view.onDidChangeVisibility(({ visible }) => this.onDidChangeVisibility(visible)),
       // Every refresh the panel sends is checked against what VS Code then fetched.
-      this.tree.onDidChangeTreeData(() => this.settleLater()),
+      this.tree.onDidChangeTreeData(() => this.settleLater(true)),
+      this.view.onDidChangeSelection(({ selection }) => {
+        // A row the user or a reveal selected supersedes the one remembered for a rebuild. The
+        // rebuild itself only empties the selection, which is not a choice.
+        if (selection.length > 0) {
+          this.reselect = undefined;
+        }
+      }),
       this.view.onDidCollapseElement(({ element }) => this.tree.setCollapsed(element, true)),
       this.view.onDidExpandElement(({ element }) => this.tree.setCollapsed(element, false)),
       vscode.window.onDidChangeWindowState(({ focused }) => {
@@ -76,15 +83,18 @@ export class ChangesPanel implements vscode.Disposable {
     if (!active || !node) {
       return false;
     }
+    this.reselect = undefined;
     void this.view
       .reveal(node, { select: true, focus: false })
       .then(undefined, (error: unknown) => {
         // The node came from the model, so a row VS Code cannot find means the panel it drew is
-        // behind the model.
+        // behind the model. The reveal is repeated once the rebuilt rows are drawn, instead of
+        // restoring the selection the failed reveal left behind.
         const detail = error instanceof Error ? error.message : String(error);
         this.log.warn(
           `The changes panel had no row for ${vscode.workspace.asRelativePath(active)}, so it was rebuilt from the model. ${detail}`,
         );
+        this.revealPending = true;
         this.repair();
       });
     return true;
@@ -141,16 +151,17 @@ export class ChangesPanel implements vscode.Disposable {
   /**
    * Runs {@link settled} once VS Code has stopped asking for rows, or at the deadline. The first
    * look comes after a quiet period, which gives VS Code time to start fetching. With `awaitFetch`
-   * it also waits for VS Code to have asked for rows at all since now.
+   * it also waits for VS Code to have asked for the top level of the current rows: VS Code applies
+   * refreshes one at a time, each after the previous one has fetched every row it drew, so a
+   * refresh sent during that goes unfetched for longer than the quiet period without being lost.
    */
   private settleLater(awaitFetch = false): void {
     clearTimeout(this.settleTimer);
-    const since = Date.now();
-    const deadline = since + SETTLE_LIMIT_MS;
+    const deadline = Date.now() + SETTLE_LIMIT_MS;
     const wait = () => {
       this.settleTimer = undefined;
       const sinceLastFetch = this.tree.sinceLastFetch();
-      const fetched = !awaitFetch || Date.now() - sinceLastFetch >= since;
+      const fetched = !awaitFetch || this.tree.rootFetched();
       const remaining = FETCH_QUIET_MS - sinceLastFetch;
       if ((remaining > 0 || !fetched) && Date.now() < deadline) {
         this.settleTimer = setTimeout(wait, remaining > 0 ? remaining : FETCH_QUIET_MS);
@@ -183,9 +194,7 @@ export class ChangesPanel implements vscode.Disposable {
       this.log.debug(`The changes panel drew ${this.pendingCount()}.`);
       if (this.revealPending) {
         this.revealPending = false;
-        if (this.revealActiveFile()) {
-          this.reselect = undefined;
-        }
+        this.revealActiveFile();
       }
       this.restoreSelection();
       return;

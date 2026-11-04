@@ -72,6 +72,11 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     return this.fetched !== undefined;
   }
 
+  /** Whether VS Code has asked for the top level of the current build, which starts every refresh. */
+  rootFetched(): boolean {
+    return this.fetched === this.roots;
+  }
+
   /** Whether VS Code has fetched every row of the current build it would draw. */
   isDrawn(): boolean {
     return this.undrawn().length === 0;

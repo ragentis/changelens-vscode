@@ -257,9 +257,13 @@ test("a panel still short after three rebuilds is left alone until the next refr
     rebuilt += 1;
   });
 
-  // VS Code never asks for the rows of any of them.
+  // VS Code never asks for the rows of any of them, so each is judged at the deadline.
   editor.state.windowStateChanged.fire({ focused: true });
-  vi.advanceTimersByTime(2_000);
+  vi.advanceTimersByTime(2_900);
+  expect(rebuilt).toBe(1);
+  vi.advanceTimersByTime(100);
+  expect(rebuilt).toBe(2);
+  vi.advanceTimersByTime(9_000);
 
   expect(rebuilt).toBe(4);
   expect(output().lines.slice(-4)).toEqual([
@@ -296,6 +300,79 @@ test("a focus rebuild replaces every row and restores the selection once they ar
   const [reveal] = treeView().revealed.slice(-1);
   expect(reveal?.node).toBe(rebuilt);
   expect(reveal?.options).toEqual({ select: true, focus: false });
+});
+
+test("a refresh is not judged before VS Code has asked for its rows", async () => {
+  await write("src/a.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  const provider = treeView().options.treeDataProvider;
+  draw(provider);
+  vi.useFakeTimers();
+
+  let rebuilt = 0;
+  provider.onDidChangeTreeData?.(() => {
+    rebuilt += 1;
+  });
+
+  // VS Code applies refreshes one at a time, each after the previous one has fetched every row,
+  // so the rows of this one can go unasked for well past the quiet period without being lost.
+  editor.state.windowStateChanged.fire({ focused: true });
+  vi.advanceTimersByTime(1_000);
+  expect(rebuilt).toBe(1);
+
+  draw(provider);
+  vi.advanceTimersByTime(600);
+  expect(rebuilt).toBe(1);
+  expect(output().lines.at(-1)).toBe("[debug] The changes panel drew 1 file.");
+});
+
+test("a file opened while the rebuilt rows are drawn wins over the remembered selection", async () => {
+  await write("src/a.ts", "one\n");
+  await write("src/b.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  await agentWrote("src/b.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+  const provider = treeView().options.treeDataProvider;
+  const [folder] = provider.getChildren();
+  const [a] = provider.getChildren(folder);
+  treeView().selection = [a];
+
+  editor.state.windowStateChanged.fire({ focused: true });
+  editor.setActiveEditor(editor.openDocument(fsPath("src/b.ts"), "one\ntwo\n"));
+  const revealed = treeView().revealed.length;
+
+  // Restoring the row remembered at the rebuild would move the selection off the file the user
+  // has just opened, while its editor stays active.
+  draw(provider);
+  vi.advanceTimersByTime(600);
+  expect(treeView().revealed).toHaveLength(revealed);
+  const [, b] = provider.getChildren(provider.getChildren()[0]);
+  expect(treeView().revealed.at(-1)?.node).toBe(b);
+});
+
+test("a row clicked while the rebuilt rows are drawn wins over the remembered selection", async () => {
+  await write("src/a.ts", "one\n");
+  await write("src/b.ts", "one\n");
+  await activate(context);
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  await agentWrote("src/b.ts", "one\ntwo\n");
+  vi.useFakeTimers();
+  const provider = treeView().options.treeDataProvider;
+  const [folder] = provider.getChildren();
+  const [a] = provider.getChildren(folder);
+  treeView().selection = [a];
+
+  editor.state.windowStateChanged.fire({ focused: true });
+  // The rebuild drops the selection on VS Code's side before the user picks another row.
+  treeView().select([]);
+  const [rebuiltFolder] = provider.getChildren();
+  treeView().select([rebuiltFolder]);
+
+  draw(provider);
+  vi.advanceTimersByTime(600);
+  expect(treeView().revealed).toEqual([]);
 });
 
 test("a show reveals the active file only once the rebuilt rows are drawn", async () => {
@@ -488,6 +565,14 @@ test("a row VS Code cannot find rebuilds the panel and is logged", async () => {
   const logged = must(output().lines.at(-1), "the log line");
   expect(logged).toContain("[warning] The changes panel had no row for a.ts");
   expect(logged).toContain("Data tree node not found");
+
+  // The file is still the active one, so once the rebuilt rows are drawn it is revealed again.
+  treeView().revealFailure = undefined;
+  const provider = treeView().options.treeDataProvider;
+  draw(provider);
+  await vi.waitUntil(() => treeView().revealed.length === 2, { timeout: 2_000 });
+  const [row] = provider.getChildren();
+  expect(treeView().revealed.at(-1)?.node).toBe(row);
 });
 
 test("autoReveal off keeps the panel where the user left it", async () => {
