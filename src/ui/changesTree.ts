@@ -23,6 +23,8 @@ interface FolderNode {
   /** The directory path under the tree-only scheme, so only ChangeLens decorates this row. */
   uri: vscode.Uri | undefined;
   children: Node[];
+  /** The rows VS Code last fetched for this folder, which is what the user has seen of it. */
+  shown?: Node[];
 }
 
 interface FileNode {
@@ -31,7 +33,7 @@ interface FileNode {
 }
 
 export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscode.Disposable {
-  private readonly _onDidChangeTreeData = new vscode.EventEmitter<Node | undefined>();
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<Node | Node[] | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private readonly subscription: vscode.Disposable;
   private roots: Node[] = [];
@@ -123,6 +125,8 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       return;
     }
     this.collapsed.add(node.path);
+    // Nothing under a collapsed folder is on screen, so a folder accept takes all of it again.
+    delete node.shown;
   }
 
   /** A key for the row that survives a rebuild, which replaces every node. */
@@ -143,9 +147,25 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     return Date.now() - this.lastFetchAt;
   }
 
-  /** Rebuilds the rows from the model, and repaints them when the panel is on screen. */
+  /**
+   * Brings the rows up to date with the model, and repaints them when the panel is on screen.
+   *
+   * A refresh of the whole tree makes VS Code forget every row until it has fetched them again,
+   * and a click on a row's button in that time reaches the command with no row at all. So while the
+   * panel is on screen, rows whose place in the tree is unchanged are kept and only the rows that
+   * changed are refreshed, which leaves every other row's button working throughout.
+   */
   refresh(): void {
-    this.build();
+    const next = this.buildNodes();
+    const changed: Node[] = [];
+    if (this.visible && this.sameShape(this.roots, next, changed)) {
+      this.index(this.roots);
+      if (changed.length > 0) {
+        this._onDidChangeTreeData.fire(changed);
+      }
+      return;
+    }
+    this.replace(next);
   }
 
   /**
@@ -156,32 +176,81 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
    */
   rebuild(): void {
     this.generation += 1;
-    this.build();
+    this.replace(this.buildNodes());
   }
 
-  private build(): void {
-    this.roots = this.viewMode === "list" ? this.buildList() : this.buildTree();
-    this.parents.clear();
-    this.byKey.clear();
-    this.byPath.clear();
+  private buildNodes(): Node[] {
+    return this.viewMode === "list" ? this.buildList() : this.buildTree();
+  }
+
+  private replace(roots: Node[]): void {
+    this.roots = roots;
     this.fetchedFolders = new Set();
-    this.index(this.roots, undefined);
+    this.index(this.roots);
     if (this.visible) {
       this._onDidChangeTreeData.fire(undefined);
     }
   }
 
-  /** Indexes the finished tree, because folder compression rewrites nodes after they are built. */
-  private index(nodes: Node[], parent: Node | undefined): void {
-    for (const node of nodes) {
-      if (parent) {
-        this.parents.set(node, parent);
+  /**
+   * Whether `next` has the rows of `current` in the same places. When it does, `current` is made to
+   * hold what `next` holds and `changed` receives the rows to refresh: a file whose change moved
+   * on, or a folder whose contents no longer line up and whose rows are therefore replaced.
+   */
+  private sameShape(current: Node[], next: Node[], changed: Node[]): boolean {
+    if (current.length !== next.length) {
+      return false;
+    }
+    for (const [index, node] of current.entries()) {
+      const replacement = next[index];
+      if (!replacement || replacement.type !== node.type) {
+        return false;
       }
-      if (node.type === "folder") {
-        this.byPath.set(node.path, node);
-        this.index(node.children, node);
-      } else {
-        this.byKey.set(node.file.key, node);
+      if (node.type === "folder" && replacement.type === "folder") {
+        if (node.path !== replacement.path || node.label !== replacement.label) {
+          return false;
+        }
+        if (!this.sameShape(node.children, replacement.children, changed)) {
+          node.children = replacement.children;
+          this.fetchedFolders.delete(node);
+          changed.push(node);
+        }
+      } else if (node.type === "file" && replacement.type === "file") {
+        if (node.file.key !== replacement.file.key) {
+          return false;
+        }
+        if (node.file !== replacement.file) {
+          node.file = replacement.file;
+          changed.push(node);
+        }
+      }
+    }
+    return true;
+  }
+
+  /** Indexes the finished tree, because folder compression rewrites nodes after they are built. */
+  private index(roots: Node[]): void {
+    this.parents.clear();
+    this.byKey.clear();
+    this.byPath.clear();
+    const visit = (nodes: Node[], parent: Node | undefined): void => {
+      for (const node of nodes) {
+        if (parent) {
+          this.parents.set(node, parent);
+        }
+        if (node.type === "folder") {
+          this.byPath.set(node.path, node);
+          visit(node.children, node);
+        } else {
+          this.byKey.set(node.file.key, node);
+        }
+      }
+    };
+    visit(roots, undefined);
+    // A folder whose rows were replaced leaves its old subfolders behind.
+    for (const folder of this.fetchedFolders) {
+      if (this.byPath.get(folder.path) !== folder) {
+        this.fetchedFolders.delete(folder);
       }
     }
   }
@@ -191,7 +260,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
     return this.parents.get(element);
   }
 
-  /** Reveal works on node identity, and every refresh replaces the nodes, so look them up fresh. */
+  /** Reveal works on node identity, and a rebuild replaces the nodes, so look them up fresh. */
   nodeForKey(key: string): Node | undefined {
     return this.byKey.get(key);
   }
@@ -241,6 +310,7 @@ export class ChangesTreeProvider implements vscode.TreeDataProvider<Node>, vscod
       return [];
     }
     this.fetchedFolders.add(element);
+    element.shown = element.children;
     return element.children;
   }
 

@@ -66,6 +66,7 @@ export function registerCommands(
   context: vscode.ExtensionContext,
   model: ChangeModel,
   store: BaselineStore,
+  log?: Pick<vscode.LogOutputChannel, "debug">,
 ): void {
   const register = (command: string, handler: CommandHandler) => {
     context.subscriptions.push(vscode.commands.registerCommand(command, handler));
@@ -262,7 +263,15 @@ export function registerCommands(
 
   register("changelens.acceptFolder", async (arg: unknown) => {
     const folder = resolveFolder(model, arg);
-    if (!folder || folder.files.length === 0 || !requireBaseline()) {
+    if (!folder) {
+      // VS Code forgets its rows while it refreshes the whole tree, and a button clicked then
+      // names no row. Logged so a click that did nothing can be told apart from one that was lost.
+      log?.debug(
+        `Accept for a folder arrived without a row (${JSON.stringify(arg)}) and was ignored.`,
+      );
+      return;
+    }
+    if (folder.files.length === 0 || !requireBaseline()) {
       return;
     }
     const confirm = await vscode.window.showInformationMessage(

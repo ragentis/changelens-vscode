@@ -16,6 +16,7 @@ interface FileNodeLike {
 interface FolderNodeLike {
   path: string;
   children: readonly unknown[];
+  shown?: readonly unknown[];
 }
 
 export interface FolderTarget {
@@ -66,8 +67,9 @@ export function resolveFile(model: ChangeModel, arg: unknown): PendingFile | und
 }
 
 /**
- * The pending files under a folder row, as the row showed them. Files that arrived after the row
- * was drawn are left out, so only what the user could see is accepted.
+ * The pending files under a folder row, as the row showed them. A folder VS Code has fetched the
+ * rows of counts those rows, so a file that arrived since is left out and only what the user could
+ * see is accepted; a folder never expanded counts everything under it.
  */
 export function resolveFolder(model: ChangeModel, arg: unknown): FolderTarget | undefined {
   if (!isFolderNodeLike(arg)) {
@@ -82,11 +84,11 @@ export function resolveFolder(model: ChangeModel, arg: unknown): FolderTarget | 
           files.push(file);
         }
       } else if (isFolderNodeLike(child)) {
-        collect(child.children);
+        collect(child.shown ?? child.children);
       }
     }
   };
-  collect(arg.children);
+  collect(arg.shown ?? arg.children);
   return { path: arg.path, files };
 }
 

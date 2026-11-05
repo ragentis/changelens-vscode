@@ -214,22 +214,58 @@ test("list mode has rows to reveal but no chain above them", async () => {
   provider.dispose();
 });
 
-test("every refresh replaces the row, so reveal has to look it up again", async () => {
+test("a change to a pending file keeps its row and refreshes only that row", async () => {
+  await write("src/a.ts", "one\n");
+  await write("src/b.ts", "one\n");
+  await model.initialize();
+  await agentWrote("src/a.ts", "one\ntwo\n");
+  await agentWrote("src/b.ts", "one\ntwo\n");
+
+  const provider = tree();
+  const refreshed: unknown[] = [];
+  provider.onDidChangeTreeData((nodes) => refreshed.push(nodes));
+  const before = must(provider.nodeForKey(key("src", "a.ts")), "the file row");
+  const [folder] = provider.getChildren();
+
+  // A refresh of the whole tree makes VS Code forget every row until it has fetched them again,
+  // and a button clicked in that time reaches its command with no row. A refresh of one row
+  // leaves the others as they are.
+  await agentWrote("src/a.ts", "one\ntwo\nthree\n");
+  const after = must(provider.nodeForKey(key("src", "a.ts")), "the same file row");
+  expect(after).toBe(before);
+  expect(provider.getTreeItem(after).description).toBe("+2 −0");
+  expect(refreshed).toEqual([[before]]);
+  expect(provider.getChildren()[0]).toBe(folder);
+
+  // A file leaving a folder changes which rows the folder has, so the folder is refreshed.
+  await model.acceptFile(key("src", "a.ts"));
+  expect(provider.nodeForKey(key("src", "a.ts"))).toBeUndefined();
+  expect(refreshed.at(-1)).toEqual([folder]);
+  expect(provider.getChildren()[0]).toBe(folder);
+  expect(rows(provider)).toEqual(["src", "b.ts"]);
+
+  // A change at the top level, or to a folder row itself, refreshes the whole tree.
+  await agentWrote("c.ts", "one\n");
+  expect(refreshed.at(-1)).toBeUndefined();
+  expect(provider.getChildren()[0]).not.toBe(folder);
+  provider.dispose();
+});
+
+test("a change while the panel is hidden replaces the rows, which the show then repaints", async () => {
   await write("a.ts", "one\n");
   await model.initialize();
   await agentWrote("a.ts", "one\ntwo\n");
 
   const provider = tree();
+  provider.getChildren();
   const before = must(provider.nodeForKey(key("a.ts")), "the file row");
 
+  // VS Code still holds the rows it drew before the panel was hidden, and the show has to be
+  // able to tell that they are behind the model.
+  provider.setVisible(false);
   await agentWrote("a.ts", "one\ntwo\nthree\n");
-  const after = must(provider.nodeForKey(key("a.ts")), "the rebuilt file row");
-
-  expect(after).not.toBe(before);
-  expect(provider.getChildren()).toContain(after);
-
-  await model.acceptFile(key("a.ts"));
-  expect(provider.nodeForKey(key("a.ts"))).toBeUndefined();
+  expect(provider.nodeForKey(key("a.ts"))).not.toBe(before);
+  expect(provider.undrawn()).toEqual(["the top level"]);
   provider.dispose();
 });
 
@@ -321,7 +357,7 @@ test("the rows VS Code has not fetched are named, except under a folder the user
   expect(provider.undrawn()).toEqual(["src/ui"]);
 
   // A rebuild replaces every row, and what was fetched before it no longer counts.
-  provider.refresh();
+  provider.rebuild();
   expect(provider.undrawn()).toEqual(["the top level"]);
   provider.dispose();
 });
@@ -395,11 +431,35 @@ test("a folder row accepts only the files it showed, not ones that arrived since
 
   const provider = tree();
   const src = must(provider.getChildren()[0], "the src folder row");
+  provider.getChildren(src);
+  await agentWrote("src/b.ts", "one\ntwo\n");
+
+  // The folder row is kept across the refresh, but what it accepts is what VS Code drew under it.
+  editor.state.answer = (_message, items) => items.find((item) => item === "Accept All");
+  await editor.run("changelens.acceptFolder", src);
+  expect(model.files.map((file) => file.key)).toEqual([key("src", "b.ts")]);
+
+  // Once VS Code has fetched the new rows, they count.
+  await agentWrote("src/a.ts", "one\ntwo\nthree\n");
+  provider.getChildren(src);
+  await editor.run("changelens.acceptFolder", src);
+  expect(model.files).toEqual([]);
+  provider.dispose();
+});
+
+test("a folder never expanded accepts everything under it", async () => {
+  await write("src/a.ts", "one\n");
+  await write("src/b.ts", "one\n");
+  await model.initialize();
+  await agentWrote("src/a.ts", "one\ntwo\n");
+
+  const provider = tree();
+  const src = must(provider.getChildren()[0], "the src folder row");
   await agentWrote("src/b.ts", "one\ntwo\n");
 
   editor.state.answer = (_message, items) => items.find((item) => item === "Accept All");
   await editor.run("changelens.acceptFolder", src);
-  expect(model.files.map((file) => file.key)).toEqual([key("src", "b.ts")]);
+  expect(model.files).toEqual([]);
   provider.dispose();
 });
 

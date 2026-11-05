@@ -137,7 +137,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  registerCommands(context, model, store);
+  registerCommands(context, model, store, output);
   publishViewMode();
 
   const gitSync = new GitSync(model, context.workspaceState);
