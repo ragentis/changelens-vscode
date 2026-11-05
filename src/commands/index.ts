@@ -25,7 +25,13 @@ import {
   STALE_HUNK,
   warn,
 } from "./messages";
-import { hunkAtCursor, resolveFile, resolveFolder, resolveReviewFileUri } from "./targets";
+import {
+  hunkAtCursor,
+  resolveFile,
+  resolveFileRow,
+  resolveFolder,
+  resolveReviewFileUri,
+} from "./targets";
 
 export { resolveKey } from "./targets";
 
@@ -222,19 +228,14 @@ export function registerCommands(
 
   // ── one file ─────────────────────────────────────────────────────────────
 
-  register("changelens.acceptFile", async (arg: unknown) => {
-    const file = resolveFile(model, arg);
-    if (file && requireBaseline()) {
+  const acceptFile = async (file: PendingFile): Promise<void> => {
+    if (requireBaseline()) {
       await model.acceptFile(file.key);
       requireBaseline();
     }
-  });
+  };
 
-  register("changelens.revertFile", async (arg: unknown) => {
-    const file = resolveFile(model, arg);
-    if (!file) {
-      return;
-    }
+  const revertFile = async (file: PendingFile): Promise<void> => {
     // An added opaque file needs no previous content and can follow the confirmed delete path.
     // Other opaque states have nothing stored to restore, and a new capture would only accept them.
     if (file.opaqueReason && file.status !== "added") {
@@ -257,18 +258,54 @@ export function registerCommands(
     if (!(await model.revertFile(file.key)) && requireBaseline()) {
       warn(STALE_FILE);
     }
+  };
+
+  register("changelens.acceptFile", async (arg: unknown) => {
+    const file = resolveFile(model, arg);
+    if (file) {
+      await acceptFile(file);
+    }
   });
 
-  // ── one folder ───────────────────────────────────────────────────────────
+  register("changelens.revertFile", async (arg: unknown) => {
+    const file = resolveFile(model, arg);
+    if (file) {
+      await revertFile(file);
+    }
+  });
+
+  // ── the rows of the changes panel ────────────────────────────────────────
+
+  /**
+   * VS Code forgets its rows while it refreshes the whole tree, and a button clicked then names no
+   * row. Logged so a click that did nothing can be told apart from one that was lost.
+   */
+  const ignoredWithoutRow = (action: string, arg: unknown): void => {
+    log?.debug(`${action} arrived without a row (${JSON.stringify(arg)}) and was ignored.`);
+  };
+
+  register("changelens.acceptFileRow", async (arg: unknown) => {
+    const file = resolveFileRow(model, arg);
+    if (!file) {
+      ignoredWithoutRow("Accept for a file", arg);
+      return;
+    }
+    await acceptFile(file);
+  });
+
+  register("changelens.revertFileRow", async (arg: unknown) => {
+    const file = resolveFileRow(model, arg);
+    if (!file) {
+      ignoredWithoutRow("Revert for a file", arg);
+      return;
+    }
+    await revertFile(file);
+  });
 
   register("changelens.acceptFolder", async (arg: unknown) => {
     const folder = resolveFolder(model, arg);
     if (!folder) {
-      // VS Code forgets its rows while it refreshes the whole tree, and a button clicked then
-      // names no row. Logged so a click that did nothing can be told apart from one that was lost.
-      log?.debug(
-        `Accept for a folder arrived without a row (${JSON.stringify(arg)}) and was ignored.`,
-      );
+      ignoredWithoutRow("Accept for a folder", arg);
       return;
     }
     if (folder.files.length === 0 || !requireBaseline()) {

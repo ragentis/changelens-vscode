@@ -136,6 +136,29 @@ test("accepting a file through the command adopts its content", async () => {
   });
 });
 
+test("a row's button acts on the row it names and never on the active editor", async () => {
+  await write("a.ts", "one\n");
+  await write("b.ts", "two\n");
+  await model.initialize();
+  await agentWrote("a.ts", "one\nmore\n");
+  await agentWrote("b.ts", "two\nmore\n");
+  const open = editor.openDocument(fsPath("a.ts"), "one\nmore\n");
+  editor.setActiveEditor(open);
+
+  // A button clicked while VS Code has forgotten its rows arrives with no row at all.
+  await editor.run("changelens.acceptFileRow");
+  await editor.run("changelens.revertFileRow");
+  expect(model.files.map((file) => file.key).sort()).toEqual([key("a.ts"), key("b.ts")]);
+  expect(open.getText()).toBe("one\nmore\n");
+
+  await editor.run("changelens.revertFileRow", { file: { key: key("b.ts") } });
+  expect(model.files.map((file) => file.key)).toEqual([key("a.ts")]);
+  expect(open.getText()).toBe("one\nmore\n");
+
+  await editor.run("changelens.acceptFileRow", { file: { key: key("a.ts") } });
+  expect(model.files).toEqual([]);
+});
+
 test("reverting a file the agent added asks before deleting it", async () => {
   await write("a.ts", "one\n");
   await model.initialize();

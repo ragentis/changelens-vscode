@@ -334,6 +334,18 @@
         "icon": "$(discard)"
       },
       {
+        "command": "changelens.acceptFileRow",
+        "title": "Accept File",
+        "category": "ChangeLens",
+        "icon": "$(check)"
+      },
+      {
+        "command": "changelens.revertFileRow",
+        "title": "Revert File",
+        "category": "ChangeLens",
+        "icon": "$(discard)"
+      },
+      {
         "command": "changelens.acceptFolder",
         "title": "Accept Folder",
         "category": "ChangeLens",
@@ -438,12 +450,12 @@
           "group": "inline@0"
         },
         {
-          "command": "changelens.acceptFile",
+          "command": "changelens.acceptFileRow",
           "when": "view == changelens.changes && viewItem == changelens.file",
           "group": "inline@1"
         },
         {
-          "command": "changelens.revertFile",
+          "command": "changelens.revertFileRow",
           "when": "view == changelens.changes && viewItem == changelens.file",
           "group": "inline@2"
         }
@@ -501,6 +513,14 @@
         }
       ],
       "commandPalette": [
+        {
+          "command": "changelens.acceptFileRow",
+          "when": "false"
+        },
+        {
+          "command": "changelens.revertFileRow",
+          "when": "false"
+        },
         {
           "command": "changelens.acceptFolder",
           "when": "false"

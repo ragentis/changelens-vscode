@@ -67,6 +67,15 @@ export function resolveFile(model: ChangeModel, arg: unknown): PendingFile | und
 }
 
 /**
+ * The pending file of a row's button, and nothing else. VS Code forgets its rows while it
+ * refreshes the whole tree, and a button clicked then names no row; falling back to the active
+ * editor would act on a file the user did not click.
+ */
+export function resolveFileRow(model: ChangeModel, arg: unknown): PendingFile | undefined {
+  return isFileNodeLike(arg) ? model.get(arg.file.key) : undefined;
+}
+
+/**
  * The pending files under a folder row, as the row showed them. A folder VS Code has fetched the
  * rows of counts those rows, so a file that arrived since is left out and only what the user could
  * see is accepted; a folder never expanded counts everything under it.
