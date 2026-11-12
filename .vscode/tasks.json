@@ -2,8 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "format",
+      "label": "Format",
+      "type": "shell",
+      "command": "npm run format",
       "options": {
         "statusbar": {
           "label": "Format",
@@ -13,8 +14,9 @@
       "problemMatcher": []
     },
     {
-      "type": "npm",
-      "script": "bundle:watch",
+      "label": "Bundle watch",
+      "type": "shell",
+      "command": "npm run bundle:watch",
       "isBackground": true,
       "presentation": { "reveal": "never" },
       "options": {
@@ -42,8 +44,9 @@
       }
     },
     {
-      "type": "npm",
-      "script": "test",
+      "label": "Test",
+      "type": "shell",
+      "command": "npm test",
       "group": "test",
       "options": {
         "statusbar": {
@@ -54,8 +57,9 @@
       "problemMatcher": []
     },
     {
-      "type": "npm",
-      "script": "verify",
+      "label": "Verify",
+      "type": "shell",
+      "command": "npm run verify",
       "options": {
         "statusbar": {
           "label": "Verify",
@@ -65,8 +69,9 @@
       "problemMatcher": []
     },
     {
-      "type": "npm",
-      "script": "package:local",
+      "label": "Build VSIX",
+      "type": "shell",
+      "command": "npm run package:local",
       "group": "build",
       "options": {
         "statusbar": {
