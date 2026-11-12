@@ -2,6 +2,17 @@
 
 Notable changes to ChangeLens. Release Please builds this file from the [commit subjects](.github/commit-instructions.md) that land on `main`, and the versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4](https://github.com/ragentis/changelens-vscode/compare/v0.4.3...v0.4.4) (2026-11-05)
+
+
+### Fixed
+
+* **commands:** give the file rows' Accept and Revert buttons their own commands ([ba4ed15](https://github.com/ragentis/changelens-vscode/commit/ba4ed158e48fd8b8624fe3e5bf682457b1b46f15))
+* **tracking:** ignore review document events on the .gitignore and HEAD watchers ([3e6b9a3](https://github.com/ragentis/changelens-vscode/commit/3e6b9a33fca3883021153781b05e9928957c8919))
+* **ui:** judge a panel refresh only after VS Code has fetched its rows ([b907ca9](https://github.com/ragentis/changelens-vscode/commit/b907ca958ab257dd34f3792147877932969dc68f))
+* **ui:** mirror Astro review documents so the Astro server stops validating them ([05116b0](https://github.com/ragentis/changelens-vscode/commit/05116b0e602faff7a33a54ed3fdc95b81d4fb6a0))
+* **ui:** refresh the changes panel's rows in place instead of replacing them ([7543c4c](https://github.com/ragentis/changelens-vscode/commit/7543c4cca1382994393ee4ef05facb8ee7628d8a))
+
 ## [0.4.3](https://github.com/ragentis/changelens-vscode/compare/v0.4.2...v0.4.3) (2026-10-30)
 
 
